@@ -262,7 +262,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPendingAuthorization, setIsPendingAuthorization] = useState(false);
   const [systemSettings, setSystemSettings] = useState({
-    systemName: 'PharmaStock SaaS',
+    systemName: 'FARMACIA MACVIDA',
     logoType: 'icon' as 'icon' | 'url',
     logoValue: 'Pill',
     primaryColor: 'emerald' as 'emerald' | 'blue' | 'indigo' | 'violet' | 'rose'
@@ -379,7 +379,7 @@ export default function App() {
         } else {
           // Setup initial default doc in localStorage/state if empty
           const initialSettings = {
-            systemName: 'PharmaStock SaaS',
+            systemName: 'FARMACIA MACVIDA',
             logoType: 'icon' as const,
             logoValue: 'Pill',
             primaryColor: 'emerald' as const
