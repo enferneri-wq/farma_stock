@@ -1884,7 +1884,7 @@ export default function App() {
                 />
               </div>
             )}
-            {activeTab !== 'dashboard' && activeTab !== 'reports' && activeTab !== 'cleaner' && (
+            {activeTab !== 'dashboard' && activeTab !== 'reports' && activeTab !== 'cleaner' && activeTab !== 'settings' && (
               <button 
                 onClick={() => {
                   if (activeTab === 'orders') handleOpenModal('order');
