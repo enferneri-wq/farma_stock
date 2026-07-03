@@ -303,6 +303,7 @@ export default function App() {
   const [ambItemExpiry, setAmbItemExpiry] = useState('');
   const [ambItemFilter, setAmbItemFilter] = useState<'Todos' | 'Medicamento' | 'Material' | 'Equipamento'>('Todos');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [orderShowSuggestions, setOrderShowSuggestions] = useState(false);
 
   // Clearing / Reset State
   const [isClearing, setIsClearing] = useState(false);
@@ -615,6 +616,13 @@ export default function App() {
       setSummary(sum);
       setInventory(inv);
       setAmbulances(amb);
+      setSelectedAmbulance((prevSelected: any) => {
+        if (prevSelected) {
+          const found = amb.find(a => a.id === prevSelected.id);
+          return found || prevSelected;
+        }
+        return prevSelected;
+      });
       setAlerts(alrt);
       setOrders(ord);
       setReportData(rep);
@@ -1137,11 +1145,38 @@ export default function App() {
       return;
     }
 
+    const demandQty = Number(ambItemQuantity) || 1;
+
+    // Check if item exists in central stock and has enough quantity
+    const matchedItem = inventory.find(item => item.name.toLowerCase() === ambItemName.trim().toLowerCase());
+    if (matchedItem) {
+      if (matchedItem.quantity <= 0) {
+        alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
+        return;
+      }
+      if (matchedItem.quantity < demandQty) {
+        alert(`⚠️ Não é possível cadastrar este material ou medicamento pois a quantidade solicitada (${demandQty}) ultrapassa o estoque disponível (${matchedItem.quantity}).`);
+        return;
+      }
+      
+      // Deduct from central stock
+      try {
+        const itemDoc = doc(db, 'inventory', matchedItem.id);
+        const newQty = matchedItem.quantity - demandQty;
+        await updateDoc(itemDoc, { quantity: newQty });
+      } catch (err) {
+        console.warn("Erro ao atualizar o estoque central:", err);
+      }
+    } else {
+      alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
+      return;
+    }
+
     const newItem = {
       id: Math.random().toString(36).substring(2, 9),
       name: ambItemName.trim(),
       category: ambItemCategory,
-      quantity: Number(ambItemQuantity) || 1,
+      quantity: demandQty,
       batch: ambItemBatch.trim() || 'N/A',
       expiry_date: ambItemExpiry || 'N/V'
     };
@@ -1161,8 +1196,15 @@ export default function App() {
     const updatedAmbulances = ambulances.map((a: any) => 
       a.id === selectedAmbulance.id ? { ...a, items: updatedItems } : a
     );
+    
+    // Sync local storage
+    localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
+
     setAmbulances(updatedAmbulances);
     setSelectedAmbulance({ ...selectedAmbulance, items: updatedItems });
+
+    // Refresh state
+    await fetchData();
 
     // Reset inputs
     setAmbItemName('');
@@ -1294,13 +1336,36 @@ export default function App() {
           localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
         }
       } else if (modalType === 'order') {
+        const demandQty = Number(formData.quantity) || 1;
+        const isRequest = (formData.type || 'Pedido') === 'Pedido';
+
+        if (isRequest) {
+          let matchedItem = null;
+          if (formData.selectedItemId) {
+            matchedItem = inventory.find(item => item.id === formData.selectedItemId);
+          } else {
+            matchedItem = inventory.find(item => item.name.toLowerCase() === formData.item_name.trim().toLowerCase());
+          }
+
+          if (!matchedItem || matchedItem.quantity <= 0) {
+            alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
+            return;
+          }
+
+          if (matchedItem.quantity < demandQty) {
+            alert(`⚠️ Não é possível cadastrar este material ou medicamento pois a quantidade solicitada (${demandQty}) ultrapassa o estoque disponível (${matchedItem.quantity}).`);
+            return;
+          }
+        }
+
         const newId = 'ord_' + Math.random().toString(36).substring(2, 11);
         const newOrderData = {
           type: formData.type || 'Pedido',
           item_name: formData.item_name,
-          quantity: Number(formData.quantity) || 1,
+          quantity: demandQty,
           status: 'Pendente',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          inventoryItemId: formData.selectedItemId || null
         };
 
         try {
@@ -1420,36 +1485,41 @@ export default function App() {
     try {
       let matchedOrder: any = null;
 
-      // Find the order to retrieve details (type, item_name, quantity)
-      const localOrd = localStorage.getItem('pharmastock_orders');
-      if (localOrd) {
-        try {
-          const orders = JSON.parse(localOrd);
-          matchedOrder = orders.find((o: any) => o.id === id);
-        } catch (e) {
-          console.error("Error parsing local orders for completing:", e);
-        }
-      }
+      // Find the order directly from state
+      matchedOrder = orders.find((o: any) => o.id === id);
 
       if (matchedOrder) {
         // Adjust the inventory stock
-        const localInv = localStorage.getItem('pharmastock_inventory');
-        let items = localInv ? JSON.parse(localInv) : [];
-        let matchedItem = items.find((item: any) => item.name.toLowerCase() === matchedOrder.item_name.toLowerCase());
+        let matchedItem = null;
+        if (matchedOrder.inventoryItemId) {
+          matchedItem = inventory.find((item: any) => item.id === matchedOrder.inventoryItemId);
+        }
+        if (!matchedItem) {
+          matchedItem = inventory.find((item: any) => item.name.toLowerCase() === matchedOrder.item_name.toLowerCase());
+        }
 
         if (matchedItem) {
           const change = matchedOrder.type === 'Pedido' ? -Number(matchedOrder.quantity) : Number(matchedOrder.quantity);
           const oldQty = Number(matchedItem.quantity) || 0;
-          matchedItem.quantity = Math.max(0, oldQty + change);
+          const newQty = Math.max(0, oldQty + change);
 
           // Update in Firestore
-          const isMockItem = (matchedItem.id.length <= 4 && matchedItem.id.startsWith('s')) || matchedItem.id.startsWith('inv_');
-          if (!isMockItem) {
+          try {
+            const itemDoc = doc(db, 'inventory', matchedItem.id);
+            await updateDoc(itemDoc, { quantity: newQty });
+          } catch (err) {
+            console.warn("Could not sync complete-order quantity updates to Firestore:", err);
+          }
+
+          // Sync local storage
+          const localInv = localStorage.getItem('pharmastock_inventory');
+          if (localInv) {
             try {
-              const itemDoc = doc(db, 'inventory', matchedItem.id);
-              await updateDoc(itemDoc, { quantity: matchedItem.quantity });
-            } catch (err) {
-              console.warn("Could not sync complete-order quantity updates to Firestore:", err);
+              let items = JSON.parse(localInv);
+              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+              localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+            } catch (e) {
+              console.error("Error parsing local inventory:", e);
             }
           }
         } else {
@@ -1473,11 +1543,12 @@ export default function App() {
               console.warn("Could not save new inventory item from devolution:", err);
             }
 
+            const localInv = localStorage.getItem('pharmastock_inventory');
+            const items = localInv ? JSON.parse(localInv) : [];
             items.push({ id: newInvId, ...newItemData });
+            localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
           }
         }
-
-        localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
       }
 
       // Mark order as completed in Firestore
@@ -1491,11 +1562,12 @@ export default function App() {
       }
 
       // Sync local storage for orders
+      const localOrd = localStorage.getItem('pharmastock_orders');
       if (localOrd) {
         try {
-          let orders = JSON.parse(localOrd);
-          orders = orders.map((o: any) => o.id === id ? { ...o, status: 'Concluído' } : o);
-          localStorage.setItem('pharmastock_orders', JSON.stringify(orders));
+          let ords = JSON.parse(localOrd);
+          ords = ords.map((o: any) => o.id === id ? { ...o, status: 'Concluído' } : o);
+          localStorage.setItem('pharmastock_orders', JSON.stringify(ords));
         } catch (e) {
           console.error("Error parsing local orders for sync:", e);
         }
@@ -2039,16 +2111,105 @@ export default function App() {
                           <option>Devolução</option>
                         </select>
                       </div>
-                      <div>
+                      <div className="relative">
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nome do Insumo solicitado</label>
                         <input 
                           required
                           className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-white text-sm"
-                          placeholder="Ex: Gaze Estéril, Seringa 10ml, etc..."
+                          placeholder="Ex: Digite para buscar no Estoque Integrado..."
                           value={formData.item_name || ''} 
-                          onChange={e => setFormData({...formData, item_name: e.target.value})}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData(prev => {
+                              const updated = { ...prev, item_name: val };
+                              if (val !== prev.item_name) {
+                                delete updated.selectedItemId;
+                                delete updated.selectedItemBatch;
+                                delete updated.selectedItemExpiry;
+                                delete updated.selectedItemCategory;
+                                delete updated.selectedItemStock;
+                              }
+                              return updated;
+                            });
+                            setOrderShowSuggestions(true);
+                          }}
+                          onFocus={() => setOrderShowSuggestions(true)}
                         />
+                        {orderShowSuggestions && (formData.item_name || '').trim().length >= 1 && (
+                          <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-slate-900 border border-slate-800 rounded-xl shadow-2xl divide-y divide-slate-800/60 custom-scrollbar">
+                            {(() => {
+                              const matches = inventory.filter(item =>
+                                item.name.toLowerCase().includes((formData.item_name || '').toLowerCase())
+                              );
+                              if (matches.length === 0) {
+                                return (
+                                  <div className="px-4 py-3 text-xs text-slate-500 italic">
+                                    Nenhum insumo correspondente no estoque geral.
+                                  </div>
+                                );
+                              }
+                              return matches.map(item => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({
+                                      ...formData,
+                                      item_name: item.name,
+                                      selectedItemId: item.id,
+                                      selectedItemBatch: item.batch,
+                                      selectedItemExpiry: item.expiry_date,
+                                      selectedItemCategory: item.category,
+                                      selectedItemStock: item.quantity
+                                    });
+                                    setOrderShowSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2.5 hover:bg-slate-850 transition-colors flex flex-col gap-0.5"
+                                >
+                                  <div className="flex justify-between items-center w-full">
+                                    <span className="text-sm font-bold text-white">{item.name}</span>
+                                    <span className="text-[10px] bg-slate-850 px-2 py-0.5 rounded text-slate-400 font-mono font-bold">
+                                      Qtd: {item.quantity}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                                    <span>Lote: {item.batch || 'N/A'}</span>
+                                    <span>Venc: {item.expiry_date || 'N/A'}</span>
+                                  </div>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
                       </div>
+
+                      {formData.selectedItemId && (
+                        <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-xs space-y-1.5 text-slate-300">
+                          <p className="font-bold text-emerald-400 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Insumo Vinculado ao Estoque Integrado:
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] font-mono mt-1 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40">
+                            <div>
+                              <span className="text-slate-500">Lote: </span>
+                              <span className="text-white font-bold">{formData.selectedItemBatch || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Vencimento: </span>
+                              <span className="text-white font-bold">{formData.selectedItemExpiry || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Categoria: </span>
+                              <span className="text-white font-bold">{formData.selectedItemCategory || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Estoque Atual: </span>
+                              <span className="text-emerald-400 font-bold">{formData.selectedItemStock ?? 0} un</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Quantidade Demandada</label>
                         <input 
