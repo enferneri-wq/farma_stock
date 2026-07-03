@@ -723,7 +723,7 @@ export default function App() {
     try {
       await signInWithEmailAndPassword(auth, resolvedEmail, authPassword);
     } catch (err: any) {
-      console.error(err);
+      console.warn("Sign-in attempt failed:", err?.message || err);
       const errStr = err?.message || '';
       const errorCode = err?.code || '';
       
@@ -752,7 +752,7 @@ export default function App() {
           await createUserWithEmailAndPassword(auth, resolvedEmail, authPassword);
           return; // Successful auto-registration and login
         } catch (regErr: any) {
-          console.error(regErr);
+          console.warn("Auto-registration attempt failed:", regErr?.message || regErr);
           const regErrStr = regErr?.message || '';
           const regErrorCode = regErr?.code || '';
           if (regErrorCode === 'auth/operation-not-allowed' || regErrStr.includes('operation-not-allowed')) {
@@ -786,7 +786,7 @@ export default function App() {
       alert('Cadastro realizado com sucesso!');
       setIsRegistering(false);
     } catch (err: any) {
-      console.error(err);
+      console.warn("Register attempt failed:", err?.message || err);
       const errStr = err?.message || '';
       const errorCode = err?.code || '';
       if (errorCode === 'auth/operation-not-allowed' || errStr.includes('operation-not-allowed')) {
@@ -978,7 +978,7 @@ export default function App() {
       setNewUserPassword('');
       setNewUserName('');
     } catch (err: any) {
-      console.error("Error in admin user creation:", err);
+      console.warn("Error in admin user creation:", err);
       setNewUserMsg({ type: 'error', text: `Erro: ${err?.message || String(err)}` });
     }
   };
