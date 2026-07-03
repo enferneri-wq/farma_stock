@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "inventoryItem": {
+      "title": "Inventory Item",
+      "description": "An item in the pharmacy inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "batch": { "type": "string" },
+        "expiry_date": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "min_stock": { "type": "integer" },
+        "is_donation": { "type": "integer" },
+        "category": { "type": "string" }
+      },
+      "required": ["name", "batch", "expiry_date", "quantity"]
+    },
+    "ambulance": {
+      "title": "Ambulance",
+      "description": "An ambulance unit tracking status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["name", "status"]
+    },
+    "order": {
+      "title": "Order",
+      "description": "A purchase order or return transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "item_name": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "status": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "item_name", "quantity", "status"]
+    }
+  },
+  "firestore": {
+    "/inventory/{itemId}": {
+      "schema": "inventoryItem",
+      "description": "Pharmacy stock and items"
+    },
+    "/ambulances/{ambulanceId}": {
+      "schema": "ambulance",
+      "description": "List of active or service ambulances"
+    },
+    "/orders/{orderId}": {
+      "schema": "order",
+      "description": "Pharmacy order and return items"
+    }
+  }
+}

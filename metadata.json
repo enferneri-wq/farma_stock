@@ -1,0 +1,5 @@
+{
+  "name": "PharmaStock SaaS",
+  "description": "Sistema SaaS multi-tenant para controle de estoque farmacêutico, doações e logística de ambulâncias com integração PagSeguro.",
+  "requestFramePermissions": []
+}
