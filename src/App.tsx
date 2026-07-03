@@ -22,7 +22,23 @@ import {
   Key,
   Info,
   Activity,
-  Lock
+  Lock,
+  PlusSquare,
+  Heart,
+  ShieldAlert,
+  Pill,
+  Stethoscope,
+  Check,
+  X,
+  Shield,
+  Users,
+  UserCheck,
+  Upload,
+  UserPlus,
+  Palette,
+  Save,
+  Database,
+  CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -135,6 +151,92 @@ function getExpiryStatus(expiryDateStr: string | undefined | null) {
   };
 }
 
+const LogoIcon = ({ iconName, size = 24, className = "" }: { iconName: string; size?: number; className?: string }) => {
+  switch (iconName) {
+    case 'PlusSquare': return <PlusSquare size={size} className={className} />;
+    case 'Activity': return <Activity size={size} className={className} />;
+    case 'Heart': return <Heart size={size} className={className} />;
+    case 'ShieldAlert': return <ShieldAlert size={size} className={className} />;
+    case 'HeartHandshake': return <HeartHandshake size={size} className={className} />;
+    case 'Stethoscope': return <Stethoscope size={size} className={className} />;
+    case 'Shield': return <Shield size={size} className={className} />;
+    case 'Pill':
+    default:
+      return <Pill size={size} className={className} />;
+  }
+};
+
+const getColorClasses = (color: string) => {
+  switch (color) {
+    case 'blue':
+      return {
+        text: 'text-blue-400',
+        bg: 'bg-blue-500/10',
+        border: 'border-blue-500/20',
+        primaryBg: 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700',
+        accentBg: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+        accentText: 'text-blue-500',
+        badge: 'text-blue-400 font-mono',
+        indicatorBg: 'border-t-2 border-blue-500',
+        glow: 'bg-blue-500/5',
+        focusRing: 'focus:ring-blue-500/20 focus:border-blue-500'
+      };
+    case 'indigo':
+      return {
+        text: 'text-indigo-400',
+        bg: 'bg-indigo-500/10',
+        border: 'border-indigo-500/20',
+        primaryBg: 'bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700',
+        accentBg: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+        accentText: 'text-indigo-500',
+        badge: 'text-indigo-400 font-mono',
+        indicatorBg: 'border-t-2 border-indigo-500',
+        glow: 'bg-indigo-500/5',
+        focusRing: 'focus:ring-indigo-500/20 focus:border-indigo-500'
+      };
+    case 'violet':
+      return {
+        text: 'text-violet-400',
+        bg: 'bg-violet-500/10',
+        border: 'border-violet-500/20',
+        primaryBg: 'bg-violet-600 hover:bg-violet-500 active:bg-violet-700',
+        accentBg: 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+        accentText: 'text-violet-500',
+        badge: 'text-violet-400 font-mono',
+        indicatorBg: 'border-t-2 border-violet-500',
+        glow: 'bg-violet-500/5',
+        focusRing: 'focus:ring-violet-500/20 focus:border-violet-500'
+      };
+    case 'rose':
+      return {
+        text: 'text-rose-400',
+        bg: 'bg-rose-500/10',
+        border: 'border-rose-500/20',
+        primaryBg: 'bg-rose-600 hover:bg-rose-500 active:bg-rose-700',
+        accentBg: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+        accentText: 'text-rose-500',
+        badge: 'text-rose-400 font-mono',
+        indicatorBg: 'border-t-2 border-rose-500',
+        glow: 'bg-rose-500/5',
+        focusRing: 'focus:ring-rose-500/20 focus:border-rose-500'
+      };
+    case 'emerald':
+    default: // emerald
+      return {
+        text: 'text-emerald-400',
+        bg: 'bg-emerald-500/10',
+        border: 'border-emerald-500/20',
+        primaryBg: 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700',
+        accentBg: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+        accentText: 'text-emerald-500',
+        badge: 'text-emerald-400 font-mono',
+        indicatorBg: 'border-t-2 border-emerald-500',
+        glow: 'bg-emerald-500/5',
+        focusRing: 'focus:ring-emerald-500/20 focus:border-emerald-500'
+      };
+  }
+};
+
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function App() {
@@ -155,6 +257,30 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
+
+  // Dynamic branding and role states
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isPendingAuthorization, setIsPendingAuthorization] = useState(false);
+  const [systemSettings, setSystemSettings] = useState({
+    systemName: 'PharmaStock SaaS',
+    logoType: 'icon' as 'icon' | 'url',
+    logoValue: 'Pill',
+    primaryColor: 'emerald' as 'emerald' | 'blue' | 'indigo' | 'violet' | 'rose'
+  });
+  const [appUsers, setAppUsers] = useState<any[]>([]);
+  const [settingsActiveSubTab, setSettingsActiveSubTab] = useState<'branding' | 'users' | 'createUser' | 'maintenance'>('branding');
+
+  // Form states for creating a user
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'Operador' | 'Administrador'>('Operador');
+  const [newUserStatus, setNewUserStatus] = useState<'Autorizado' | 'Pendente'>('Autorizado');
+  const [newUserMsg, setNewUserMsg] = useState({ type: '', text: '' });
+
+  // Settings save state
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -177,11 +303,8 @@ export default function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
 
-  // Admin and privilege controls
-  const isAdmin = user && (user.email === 'sinron@pharmastock.com' || user.email === 'sinron');
-
   useEffect(() => {
-    if (activeTab === 'cleaner' && !isAdmin && user) {
+    if (activeTab === 'settings' && !isAdmin && user) {
       setActiveTab('dashboard');
     }
   }, [activeTab, isAdmin, user]);
@@ -233,6 +356,114 @@ export default function App() {
       if (error instanceof Error && error.message.includes('the client is offline')) {
         console.error("Please check your Firebase configuration.");
       }
+    }
+  };
+
+  const fetchSettingsAndUsers = async (currentUser: any) => {
+    try {
+      // 1. Fetch system settings
+      try {
+        const settingsSnapshot = await getDocs(collection(db, 'settings'));
+        if (!settingsSnapshot.empty) {
+          const sysDoc = settingsSnapshot.docs.find(d => d.id === 'system' || d.data().systemName);
+          if (sysDoc) {
+            setSystemSettings(sysDoc.data() as any);
+          }
+        } else {
+          // Setup initial default doc in localStorage/state if empty
+          const initialSettings = {
+            systemName: 'PharmaStock SaaS',
+            logoType: 'icon' as const,
+            logoValue: 'Pill',
+            primaryColor: 'emerald' as const
+          };
+          setSystemSettings(initialSettings);
+        }
+      } catch (settingsErr) {
+        console.warn("Could not fetch settings from Firestore, using LocalStorage:", settingsErr);
+        const localSettings = localStorage.getItem('pharmastock_settings');
+        if (localSettings) {
+          setSystemSettings(JSON.parse(localSettings));
+        }
+      }
+
+      // 2. Fetch users
+      let usersList: any[] = [];
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        usersList = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        // Ensure default admin user is in the list
+        const hasAdminInList = usersList.some(u => u.email === 'sinron@pharmastock.com' || u.email === 'sinron');
+        if (!hasAdminInList) {
+          const initialAdmin = {
+            email: 'sinron@pharmastock.com',
+            role: 'Administrador',
+            status: 'Autorizado',
+            createdAt: new Date().toISOString()
+          };
+          await addDoc(collection(db, 'users'), initialAdmin);
+          usersList.push(initialAdmin);
+        }
+        
+        setAppUsers(usersList);
+        localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
+      } catch (usersErr) {
+        console.warn("Could not fetch users from Firestore, using LocalStorage:", usersErr);
+        const localUsers = localStorage.getItem('pharmastock_users');
+        if (localUsers) {
+          usersList = JSON.parse(localUsers);
+        } else {
+          usersList = [
+            { id: 'u1', email: 'sinron@pharmastock.com', role: 'Administrador', status: 'Autorizado', createdAt: new Date().toISOString() }
+          ];
+          localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
+        }
+        setAppUsers(usersList);
+      }
+
+      // 3. Verify currentUser authorization status
+      if (currentUser) {
+        const email = currentUser.email || '';
+        const isSuperAdmin = email === 'sinron@pharmastock.com' || email === 'sinron' || email.split('@')[0] === 'sinron';
+        
+        if (isSuperAdmin) {
+          setIsPendingAuthorization(false);
+          setIsAdmin(true);
+        } else {
+          const matchedUser = usersList.find(u => u.email.toLowerCase() === email.toLowerCase() || u.email.split('@')[0].toLowerCase() === email.toLowerCase());
+          if (matchedUser) {
+            if (matchedUser.role === 'Administrador' || matchedUser.status === 'Autorizado') {
+              setIsPendingAuthorization(false);
+              setIsAdmin(matchedUser.role === 'Administrador');
+            } else {
+              setIsPendingAuthorization(true);
+            }
+          } else {
+            // Self-registered user not in collection yet, auto-add as Pendente
+            const newUserRecord = {
+              email: email,
+              role: 'Operador' as const,
+              status: 'Pendente' as const,
+              createdAt: new Date().toISOString()
+            };
+            try {
+              await addDoc(collection(db, 'users'), newUserRecord);
+            } catch (addErr) {
+              console.warn("Failed to save new user to Firestore:", addErr);
+            }
+            usersList.push(newUserRecord);
+            setAppUsers([...usersList]);
+            localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
+            setIsPendingAuthorization(true);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error in fetchSettingsAndUsers:", err);
     }
   };
 
@@ -448,7 +679,12 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      fetchData();
+      fetchSettingsAndUsers(user).then(() => {
+        fetchData();
+      });
+    } else {
+      setIsAdmin(false);
+      setIsPendingAuthorization(false);
     }
   }, [user]);
 
@@ -582,6 +818,168 @@ export default function App() {
       setSearchTerm('');
     } catch (err) {
       console.error("Erro ao sair:", err);
+    }
+  };
+
+  // --- System Settings & User Authorization Handlers ---
+  const handleSaveSystemSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    setSettingsMsg('');
+
+    try {
+      try {
+        const settingsCol = collection(db, 'settings');
+        const settingsSnap = await getDocs(settingsCol);
+        const sysDoc = settingsSnap.docs.find(d => d.id === 'system' || d.data().systemName);
+        if (sysDoc) {
+          await updateDoc(doc(db, 'settings', sysDoc.id), systemSettings);
+        } else {
+          await addDoc(settingsCol, systemSettings);
+        }
+        setSettingsMsg('Configurações salvas com sucesso no Firebase!');
+      } catch (fErr) {
+        console.warn("Could not write settings to Firestore, saving to LocalStorage fallback:", fErr);
+        setSettingsMsg('Configurações salvas localmente no navegador.');
+      }
+
+      localStorage.setItem('pharmastock_settings', JSON.stringify(systemSettings));
+      document.title = systemSettings.systemName;
+      setTimeout(() => setSettingsMsg(''), 4000);
+    } catch (err) {
+      console.error("Error saving settings:", err);
+      setSettingsMsg('Erro ao salvar as configurações.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleToggleAuthorizeUser = async (userToUpdate: any) => {
+    const newStatus = userToUpdate.status === 'Autorizado' ? 'Pendente' : 'Autorizado';
+    const updatedUsers = appUsers.map(u => u.email === userToUpdate.email ? { ...u, status: newStatus } : u);
+    setAppUsers(updatedUsers);
+    localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsers));
+
+    try {
+      if (userToUpdate.id) {
+        await updateDoc(doc(db, 'users', userToUpdate.id), { status: newStatus });
+      } else {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const docToUpdate = usersSnap.docs.find(d => d.data().email === userToUpdate.email);
+        if (docToUpdate) {
+          await updateDoc(doc(db, 'users', docToUpdate.id), { status: newStatus });
+        }
+      }
+    } catch (err) {
+      console.warn("Could not synchronize user status toggle with Firebase:", err);
+    }
+  };
+
+  const handleToggleUserRole = async (userToUpdate: any) => {
+    const newRole = userToUpdate.role === 'Administrador' ? 'Operador' : 'Administrador';
+    const updatedUsers = appUsers.map(u => u.email === userToUpdate.email ? { ...u, role: newRole } : u);
+    setAppUsers(updatedUsers);
+    localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsers));
+
+    try {
+      if (userToUpdate.id) {
+        await updateDoc(doc(db, 'users', userToUpdate.id), { role: newRole });
+      } else {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const docToUpdate = usersSnap.docs.find(d => d.data().email === userToUpdate.email);
+        if (docToUpdate) {
+          await updateDoc(doc(db, 'users', docToUpdate.id), { role: newRole });
+        }
+      }
+    } catch (err) {
+      console.warn("Could not synchronize user role toggle with Firebase:", err);
+    }
+  };
+
+  const handleDeleteAppUser = async (userToDelete: any) => {
+    if (userToDelete.email === 'sinron@pharmastock.com' || userToDelete.email === 'sinron') {
+      alert("O usuário administrador principal 'sinron' não pode ser excluído.");
+      return;
+    }
+
+    if (!confirm(`Deseja realmente excluir o usuário ${userToDelete.email}?`)) {
+      return;
+    }
+
+    const updatedUsers = appUsers.filter(u => u.email !== userToDelete.email);
+    setAppUsers(updatedUsers);
+    localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsers));
+
+    try {
+      if (userToDelete.id) {
+        await deleteDoc(doc(db, 'users', userToDelete.id));
+      } else {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const docToDelete = usersSnap.docs.find(d => d.data().email === userToDelete.email);
+        if (docToDelete) {
+          await deleteDoc(doc(db, 'users', docToDelete.id));
+        }
+      }
+    } catch (err) {
+      console.warn("Could not delete user document from Firebase:", err);
+    }
+  };
+
+  const handleAdminCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNewUserMsg({ type: '', text: '' });
+
+    const emailToCreate = resolveEmail(newUserEmail);
+    if (!emailToCreate || newUserPassword.length < 6) {
+      setNewUserMsg({ type: 'error', text: 'Insira um e-mail válido e senha com no mínimo 6 caracteres.' });
+      return;
+    }
+
+    const emailLower = emailToCreate.toLowerCase();
+    const alreadyExists = appUsers.some(u => u.email.toLowerCase() === emailLower);
+    if (alreadyExists) {
+      setNewUserMsg({ type: 'error', text: 'Este usuário já está cadastrado no sistema.' });
+      return;
+    }
+
+    try {
+      let registeredInAuth = false;
+      const newUserObj: any = {
+        email: emailToCreate,
+        role: newUserRole,
+        status: newUserStatus,
+        createdAt: new Date().toISOString()
+      };
+
+      try {
+        await createUserWithEmailAndPassword(auth, emailToCreate, newUserPassword);
+        registeredInAuth = true;
+      } catch (authErr: any) {
+        console.warn("Could not register user in Firebase Auth directly (or already registered):", authErr);
+      }
+
+      try {
+        const docRef = await addDoc(collection(db, 'users'), newUserObj);
+        newUserObj.id = docRef.id;
+      } catch (dbErr) {
+        console.warn("Could not save user to Firestore, continuing with local fallback:", dbErr);
+      }
+
+      const updatedUsers = [...appUsers, newUserObj];
+      setAppUsers(updatedUsers);
+      localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsers));
+
+      setNewUserMsg({
+        type: 'success',
+        text: `Usuário '${emailToCreate}' criado com sucesso${registeredInAuth ? ' e registrado no Firebase Auth' : ' localmente'}!`
+      });
+
+      setNewUserEmail('');
+      setNewUserPassword('');
+      setNewUserName('');
+    } catch (err: any) {
+      console.error("Error in admin user creation:", err);
+      setNewUserMsg({ type: 'error', text: `Erro: ${err?.message || String(err)}` });
     }
   };
 
@@ -1196,7 +1594,7 @@ export default function App() {
     { id: 'ambulances', label: 'Frota/Ambulâncias', icon: Ambulance },
     { id: 'orders', label: 'Pedidos & Devoluções', icon: ClipboardList },
     { id: 'reports', label: 'Análises & Relatórios', icon: BarChart3 },
-    ...(isAdmin ? [{ id: 'cleaner', label: 'Manutenção / Limpar', icon: Settings }] : []),
+    ...(isAdmin ? [{ id: 'settings', label: 'Configurações', icon: Settings }] : []),
   ];
 
   const filteredInventory = React.useMemo(() => {
@@ -1241,31 +1639,39 @@ export default function App() {
 
   // Authentication Interface
   if (authLoading) {
+    const themeColors = getColorClasses(systemSettings.primaryColor);
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#060913] text-white">
         <motion.div 
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-          className="border-t-2 border-emerald-500 rounded-full w-12 h-12 mb-4"
+          className={`border-t-2 rounded-full w-12 h-12 mb-4`}
+          style={{ borderTopColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
         />
-        <p className="font-mono text-sm tracking-widest text-emerald-400">CARREGANDO CONTROLE...</p>
+        <p className={`font-mono text-sm tracking-widest ${themeColors.text}`}>CARREGANDO CONTROLE...</p>
       </div>
     );
   }
+
+  const themeColors = getColorClasses(systemSettings.primaryColor);
 
   if (!user) {
     return (
       <div className="min-h-screen bg-[#060913] flex items-center justify-center p-4 relative overflow-hidden">
         {/* Glowing Background Orbs */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full filter blur-3xl pointer-events-none" />
+        <div className={`absolute top-1/4 left-1/4 w-96 h-96 rounded-full filter blur-3xl pointer-events-none ${themeColors.glow}`} />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/5 rounded-full filter blur-3xl pointer-events-none" />
 
         <div className="w-full max-w-md z-10">
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5 mb-3">
-              <Package size={36} className="text-emerald-400" />
+            <div className={`p-4 rounded-2xl border shadow-lg shadow-black/20 mb-3 ${themeColors.bg} ${themeColors.border}`}>
+              {systemSettings.logoType === 'url' && systemSettings.logoValue ? (
+                <img src={systemSettings.logoValue} alt="Logo" className="w-9 h-9 object-contain" referrerPolicy="no-referrer" />
+              ) : (
+                <LogoIcon iconName={systemSettings.logoValue} size={36} className={themeColors.text} />
+              )}
             </div>
-            <h1 className="text-3xl font-extrabold text-white tracking-tight">PharmaStock</h1>
+            <h1 className="text-3xl font-extrabold text-white tracking-tight">{systemSettings.systemName}</h1>
             <p className="text-slate-400 text-sm mt-1">Gestão Inteligente de Insumos da Saúde</p>
           </div>
 
@@ -1273,19 +1679,19 @@ export default function App() {
             <div className="flex border-b border-slate-800 mb-6">
               <button 
                 onClick={() => { setIsRegistering(false); setAuthError(''); }}
-                className={`flex-1 pb-3 text-sm font-semibold transition-colors ${!isRegistering ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex-1 pb-3 text-sm font-semibold transition-colors ${!isRegistering ? `${themeColors.text} border-b-2` : 'text-slate-400 hover:text-slate-200'}`}
+                style={!isRegistering ? { borderBottomColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' } : {}}
               >
                 Entrar
               </button>
               <button 
                 onClick={() => { setIsRegistering(true); setAuthError(''); }}
-                className={`flex-1 pb-3 text-sm font-semibold transition-colors ${isRegistering ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex-1 pb-3 text-sm font-semibold transition-colors ${isRegistering ? `${themeColors.text} border-b-2` : 'text-slate-400 hover:text-slate-200'}`}
+                style={isRegistering ? { borderBottomColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' } : {}}
               >
                 Criar Conta
               </button>
             </div>
-
-
 
             <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
               <div>
@@ -1294,7 +1700,7 @@ export default function App() {
                   type="text" 
                   required
                   placeholder="Ex: admin ou seu_email@servico.com"
-                  className="w-full px-4 py-3 bg-slate-950/60 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-white text-sm transition-all"
+                  className={`w-full px-4 py-3 bg-slate-950/60 border border-slate-800 rounded-xl focus:ring-2 outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
                   value={authEmail}
                   onChange={e => setAuthEmail(e.target.value)}
                 />
@@ -1306,7 +1712,7 @@ export default function App() {
                   type="password" 
                   required
                   placeholder="******"
-                  className="w-full px-4 py-3 bg-slate-950/60 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-white text-sm transition-all"
+                  className={`w-full px-4 py-3 bg-slate-950/60 border border-slate-800 rounded-xl focus:ring-2 outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
                   value={authPassword}
                   onChange={e => setAuthPassword(e.target.value)}
                 />
@@ -1321,17 +1727,53 @@ export default function App() {
 
               <button 
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2"
+                className={`w-full py-3 text-white rounded-xl text-sm font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${themeColors.primaryBg}`}
               >
                 <Key size={16} />
                 <span>{isRegistering ? 'Criar Nova Conta' : 'Conectar com Segurança'}</span>
               </button>
             </form>
 
-            <div className="mt-8 pt-6 border-t border-slate-800 text-center text-[11px] text-slate-500 space-y-1">
-              <p>PharmaStock Enterprise • Acesso Criptografado</p>
+            <div className="mt-8 pt-6 border-t border-slate-800 text-center text-[11px] text-slate-500 space-y-1 font-mono">
+              <p>{systemSettings.systemName} Enterprise • Acesso Criptografado</p>
               <p className="text-slate-600">Direitos reservados - Antonio Sinron Neri</p>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user && isPendingAuthorization) {
+    return (
+      <div className="min-h-screen bg-[#060913] flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Glowing Background Orbs */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full filter blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-500/5 rounded-full filter blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md z-10 text-center">
+          <div className="flex flex-col items-center mb-6">
+            <div className="bg-amber-500/10 p-5 rounded-2xl border border-amber-500/20 shadow-lg mb-4 text-amber-400">
+              <ShieldAlert size={48} className="animate-pulse" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-white tracking-tight">Acesso Pendente de Autorização</h1>
+            <p className="text-slate-400 text-sm mt-2 max-w-sm mx-auto">
+              Olá, <span className="text-amber-400 font-bold font-mono">{user.email}</span>! Sua conta foi criada com sucesso, mas está aguardando liberação do administrador.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800/80 backdrop-blur-xl p-8 rounded-2xl shadow-2xl space-y-5">
+            <p className="text-xs text-slate-300 leading-relaxed text-left">
+              O administrador do sistema (<span className="text-emerald-400 font-bold">Antonio Sinron Neri</span>) precisa autorizar seu e-mail no painel de controle antes que você possa acessar o painel do sistema.
+            </p>
+
+            <button 
+              onClick={handleLogout}
+              className="w-full py-3.5 bg-red-950/40 hover:bg-red-900/40 text-red-400 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 border border-red-900/30"
+            >
+              <LogOut size={16} />
+              <span>Sair do Sistema</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1343,27 +1785,33 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-68 bg-[#090d1a] border-r border-slate-800 flex flex-col shrink-0">
         <div className="p-6">
-          <div className="flex items-center gap-3 text-emerald-400 font-bold text-xl">
-            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl shadow-md">
-              <Package size={22} className="text-emerald-400" />
+          <div className={`flex items-center gap-3 font-bold text-xl ${themeColors.text}`}>
+            <div className={`p-2.5 rounded-xl shadow-md border ${themeColors.bg} ${themeColors.border}`}>
+              {systemSettings.logoType === 'url' && systemSettings.logoValue ? (
+                <img src={systemSettings.logoValue} alt="Logo" className="w-[22px] h-[22px] object-contain" referrerPolicy="no-referrer" />
+              ) : (
+                <LogoIcon iconName={systemSettings.logoValue} size={22} className={themeColors.text} />
+              )}
             </div>
-            <div className="flex flex-col">
-              <span className="leading-none text-white font-extrabold tracking-tight">PharmaStock</span>
-              <span className="text-[10px] text-emerald-500 font-mono mt-0.5 uppercase tracking-widest">Painel Pro</span>
+            <div className="flex flex-col min-w-0">
+              <span className="leading-none text-white font-extrabold tracking-tight truncate">{systemSettings.systemName}</span>
+              <span className={`text-[10px] font-mono mt-0.5 uppercase tracking-widest ${themeColors.text}`}>Painel Pro</span>
             </div>
           </div>
         </div>
 
         {/* User Badge */}
         <div className="px-6 py-3 border-y border-slate-800 bg-slate-950/30 flex items-center gap-3">
-          <div className="bg-slate-800 w-8 h-8 rounded-full flex items-center justify-center text-emerald-400 font-extrabold text-sm uppercase">
-            {user.email ? (user.email.endsWith('@pharmastock.com') ? user.email.split('@')[0][0] : user.email[0]) : 'U'}
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-sm uppercase bg-slate-800 ${themeColors.text}`}>
+            {user.email ? (user.email.includes('@') ? user.email.split('@')[0][0] : user.email[0]) : 'U'}
           </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs text-slate-400 font-mono truncate">
-              {user.email && user.email.endsWith('@pharmastock.com') ? user.email.split('@')[0] : user.email}
+              {user.email && user.email.includes('@') ? user.email.split('@')[0] : user.email}
             </span>
-            <span className="text-[9px] text-emerald-400 font-bold tracking-wider uppercase">Operador</span>
+            <span className={`text-[9px] font-bold tracking-wider uppercase ${themeColors.text}`}>
+              {isAdmin ? 'Administrador' : 'Operador'}
+            </span>
           </div>
         </div>
 
@@ -1374,7 +1822,7 @@ export default function App() {
               onClick={() => setActiveTab(item.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                 activeTab === item.id 
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold shadow-inner' 
+                ? `${themeColors.accentBg} font-semibold shadow-inner` 
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
@@ -2518,110 +2966,436 @@ export default function App() {
               </div>
             )}
 
-            {/* Clear Database Configuration View */}
-            {activeTab === 'cleaner' && (
+            {/* Comprehensive System Settings Tab */}
+            {activeTab === 'settings' && (
               isAdmin ? (
-                <div className="max-w-xl mx-auto space-y-8 pb-12">
-                  <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl shadow-xl space-y-6">
-                    <div className="flex items-center gap-3 text-red-400">
-                      <Trash2 size={26} />
-                      <h2 className="text-xl font-extrabold text-white">Manutenção do Banco de Dados</h2>
-                    </div>
-                    
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                      Esta tela permite que você realize operações administrativas no banco de dados do PharmaStock. Você pode zerar todos os dados para começar um inventário corporativo real, ou restaurar os dados fictícios padrão para demonstrações.
-                    </p>
-
-                    <div className="p-4 bg-red-950/20 rounded-xl border border-red-900/30 space-y-4">
-                      <div>
-                        <h3 className="text-sm font-bold text-red-400 flex items-center gap-1.5">
-                          <Trash2 size={16} /> Opção: Limpar Sistema (Lançamentos Novos)
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Isso removerá instantaneamente todos os insumos cadastrados, ambulâncias e pedidos de forma definitiva do Firestore. O recurso de carregamento automático de demonstração será desativado para deixar o sistema vazio e pronto para uso real.
-                        </p>
-                      </div>
-
-                      {showClearConfirm ? (
-                        <div className="p-4 bg-red-950/80 border border-red-800 rounded-xl space-y-3">
-                          <p className="text-xs font-bold text-red-200">
-                            ⚠️ TEM CERTEZA ABSOLUTA? Esta operação removerá definitivamente todos os dados do banco de dados e localstorage. Isto é irreversível.
-                          </p>
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <button
-                              type="button"
-                              disabled={isClearing}
-                              onClick={handleClearDatabase}
-                              className="px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all"
-                            >
-                              {isClearing ? 'Efetuando Limpeza...' : 'Sim, Apagar Tudo'}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isClearing}
-                              onClick={() => setShowClearConfirm(false)}
-                              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setShowClearConfirm(true); setShowRestoreConfirm(false); }}
-                          className="w-full sm:w-auto px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 border border-red-500/20"
-                        >
-                          Zerar e Iniciar Novo Estoque
-                        </button>
+                <div className="space-y-8 pb-12">
+                  {/* Settings Navigation Sub-Tabs */}
+                  <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-px mb-6">
+                    <button 
+                      onClick={() => setSettingsActiveSubTab('branding')}
+                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'branding' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      <Palette size={16} />
+                      <span>Identidade Visual</span>
+                      {settingsActiveSubTab === 'branding' && (
+                        <motion.div 
+                          layoutId="activeSettingsSubTab" 
+                          className="absolute bottom-0 left-0 right-0 h-0.5" 
+                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                        />
                       )}
-                    </div>
-
-                    <div className="p-4 bg-emerald-950/20 rounded-xl border border-emerald-900/30 space-y-4 mt-6">
-                      <div>
-                        <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                          <RefreshCw size={16} /> Opção: Restaurar Amostras de Teste
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Utilize para popular o sistema novamente com itens representativos (Amoxicilina, Dipirona, Soro Fisiológico) para fins de teste ou demonstração visual das funcionalidades. Heurísticas de controle serão reativadas.
-                        </p>
-                      </div>
-
-                      {showRestoreConfirm ? (
-                        <div className="p-4 bg-emerald-950/80 border border-emerald-850 rounded-xl space-y-3">
-                          <p className="text-xs font-bold text-emerald-200">
-                            Aviso: Isso substituirá os registros atuais para carregar as amostras padrão de fábrica. Continuar?
-                          </p>
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <button
-                              type="button"
-                              disabled={isClearing}
-                              onClick={handleRestoreDefaults}
-                              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all"
-                            >
-                              {isClearing ? 'Restaurando...' : 'Sim, Restaurar'}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isClearing}
-                              onClick={() => setShowRestoreConfirm(false)}
-                              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setShowRestoreConfirm(true); setShowClearConfirm(false); }}
-                          className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 border border-emerald-700/20"
-                        >
-                          Restaurar Dados de Amostra
-                        </button>
+                    </button>
+                    <button 
+                      onClick={() => setSettingsActiveSubTab('users')}
+                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'users' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      <Users size={16} />
+                      <span>Autorizar Usuários</span>
+                      {settingsActiveSubTab === 'users' && (
+                        <motion.div 
+                          layoutId="activeSettingsSubTab" 
+                          className="absolute bottom-0 left-0 right-0 h-0.5" 
+                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                        />
                       )}
-                    </div>
+                    </button>
+                    <button 
+                      onClick={() => setSettingsActiveSubTab('createUser')}
+                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'createUser' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      <UserPlus size={16} />
+                      <span>Cadastrar Usuário</span>
+                      {settingsActiveSubTab === 'createUser' && (
+                        <motion.div 
+                          layoutId="activeSettingsSubTab" 
+                          className="absolute bottom-0 left-0 right-0 h-0.5" 
+                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                        />
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => setSettingsActiveSubTab('maintenance')}
+                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'maintenance' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      <Database size={16} />
+                      <span>Manutenção</span>
+                      {settingsActiveSubTab === 'maintenance' && (
+                        <motion.div 
+                          layoutId="activeSettingsSubTab" 
+                          className="absolute bottom-0 left-0 right-0 h-0.5" 
+                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                        />
+                      )}
+                    </button>
                   </div>
+
+                  {/* Sub-Tab 1: Visual Identity & Branding Settings */}
+                  {settingsActiveSubTab === 'branding' && (
+                    <div className="max-w-2xl bg-slate-900/40 border border-slate-800 p-8 rounded-2xl shadow-xl">
+                      <h3 className="text-lg font-bold text-white mb-2">Identidade Visual & Customização</h3>
+                      <p className="text-xs text-slate-400 mb-6">Personalize os elementos visuais, logo e o nome que aparece nas páginas do site.</p>
+
+                      <form onSubmit={handleSaveSystemSettings} className="space-y-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nome do Sistema</label>
+                            <input 
+                              type="text" 
+                              required
+                              placeholder="Ex: PharmaStock"
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={systemSettings.systemName}
+                              onChange={e => setSystemSettings({ ...systemSettings, systemName: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Cor Temática Principal</label>
+                            <select 
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={systemSettings.primaryColor}
+                              onChange={e => setSystemSettings({ ...systemSettings, primaryColor: e.target.value as any })}
+                            >
+                              <option value="emerald">Verde Esmeralda (Padrão)</option>
+                              <option value="blue">Azul Clínico</option>
+                              <option value="indigo">Índigo Corporativo</option>
+                              <option value="violet">Roxo Violeta</option>
+                              <option value="rose">Rosa Saúde</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-800 pt-5">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Tipo de Logotipo</label>
+                            <select 
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={systemSettings.logoType}
+                              onChange={e => setSystemSettings({ ...systemSettings, logoType: e.target.value as any, logoValue: e.target.value === 'icon' ? 'Pill' : '' })}
+                            >
+                              <option value="icon">Ícone de Sistema</option>
+                              <option value="url">Link Externo (URL de Imagem)</option>
+                            </select>
+                          </div>
+                          <div>
+                            {systemSettings.logoType === 'icon' ? (
+                              <>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Escolher Ícone da Logo</label>
+                                <select 
+                                  className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                                  value={systemSettings.logoValue}
+                                  onChange={e => setSystemSettings({ ...systemSettings, logoValue: e.target.value })}
+                                >
+                                  <option value="Pill">Pílula / Medicamentos</option>
+                                  <option value="Package">Caixa / Insumos</option>
+                                  <option value="Activity">Gráfico de Pulso</option>
+                                  <option value="Heart">Coração / Doações</option>
+                                  <option value="Shield">Escudo / Proteção</option>
+                                  <option value="Stethoscope">Estetoscópio</option>
+                                  <option value="Cross">Cruz de Emergência</option>
+                                </select>
+                              </>
+                            ) : (
+                              <>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">URL da Imagem da Logo</label>
+                                <input 
+                                  type="url" 
+                                  required
+                                  placeholder="https://exemplo.com/logo.png"
+                                  className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                                  value={systemSettings.logoValue}
+                                  onChange={e => setSystemSettings({ ...systemSettings, logoValue: e.target.value })}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {settingsMsg && (
+                          <div className={`p-3 bg-emerald-950/20 border border-emerald-900/30 text-emerald-400 text-xs rounded-xl flex items-center gap-2`}>
+                            <CheckCircle size={14} className="shrink-0" />
+                            <span>{settingsMsg}</span>
+                          </div>
+                        )}
+
+                        <div className="pt-4 border-t border-slate-800 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={isSavingSettings}
+                            className={`px-6 py-3 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-50 ${themeColors.primaryBg}`}
+                          >
+                            <Save size={14} />
+                            <span>{isSavingSettings ? 'Salvando Alterações...' : 'Salvar Configurações'}</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Sub-Tab 2: User Authorization Management */}
+                  {settingsActiveSubTab === 'users' && (
+                    <div className="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-white">Autorizar & Gerenciar Usuários</h3>
+                        <p className="text-xs text-slate-400 mt-1">Gerencie quem possui permissão de login e atribua funções de Administrador ou Operador.</p>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+                              <th className="py-3 px-4">E-mail de Acesso</th>
+                              <th className="py-3 px-4">Nível de Acesso</th>
+                              <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 text-sm">
+                            {appUsers.map((appUser) => {
+                              const isSelf = appUser.email === user.email;
+                              const isDefaultAdmin = appUser.email === 'sinron@pharmastock.com' || appUser.email === 'sinron';
+                              return (
+                                <tr key={appUser.id || appUser.email} className="hover:bg-slate-950/20 transition-all">
+                                  <td className="py-3.5 px-4 font-medium text-slate-100 font-mono">
+                                    {appUser.email}
+                                    {isSelf && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal">Você</span>}
+                                    {isDefaultAdmin && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-red-950/30 text-red-400 border border-red-900/20 font-normal">Dono</span>}
+                                  </td>
+                                  <td className="py-3.5 px-4">
+                                    <button
+                                      disabled={isDefaultAdmin || isSelf}
+                                      onClick={() => handleToggleUserRole(appUser)}
+                                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                        appUser.role === 'Administrador' 
+                                          ? 'bg-purple-950/30 text-purple-400 border border-purple-900/30' 
+                                          : 'bg-slate-950/40 text-slate-300 border border-slate-800'
+                                      } ${!(isDefaultAdmin || isSelf) && 'hover:bg-opacity-80 active:scale-95'}`}
+                                    >
+                                      {appUser.role === 'Administrador' ? <ShieldAlert size={12} /> : <Shield size={12} />}
+                                      <span>{appUser.role || 'Operador'}</span>
+                                    </button>
+                                  </td>
+                                  <td className="py-3.5 px-4">
+                                    <button
+                                      disabled={isDefaultAdmin || isSelf}
+                                      onClick={() => handleToggleAuthorizeUser(appUser)}
+                                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                                        appUser.status === 'Autorizado'
+                                          ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
+                                          : 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
+                                      } ${!(isDefaultAdmin || isSelf) && 'hover:bg-opacity-80 active:scale-95'}`}
+                                    >
+                                      {appUser.status || 'Autorizado'}
+                                    </button>
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right">
+                                    <button
+                                      type="button"
+                                      disabled={isDefaultAdmin || isSelf}
+                                      onClick={() => handleDeleteAppUser(appUser)}
+                                      className={`p-1.5 rounded-lg border border-red-900/20 text-red-400 bg-red-950/10 hover:bg-red-900/20 transition-all ${
+                                        (isDefaultAdmin || isSelf) ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
+                                      }`}
+                                      title={isDefaultAdmin ? "Administrador primário não pode ser deletado." : "Excluir Usuário"}
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-Tab 3: Add / Create Users Form */}
+                  {settingsActiveSubTab === 'createUser' && (
+                    <div className="max-w-xl bg-slate-900/40 border border-slate-800 p-8 rounded-2xl shadow-xl">
+                      <h3 className="text-lg font-bold text-white mb-1">Cadastrar Novo Usuário</h3>
+                      <p className="text-xs text-slate-400 mb-6">Cadastre novos operadores ou administradores de maneira centralizada.</p>
+
+                      <form onSubmit={handleAdminCreateUser} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Usuário ou E-mail</label>
+                          <input 
+                            type="text" 
+                            required
+                            placeholder="Ex: operador1 ou email@servico.com"
+                            className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                            value={newUserEmail}
+                            onChange={e => setNewUserEmail(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Senha Provisória (Mínimo 6 dígitos)</label>
+                          <input 
+                            type="password" 
+                            required
+                            minLength={6}
+                            placeholder="******"
+                            className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                            value={newUserPassword}
+                            onChange={e => setNewUserPassword(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nível Administrativo</label>
+                            <select 
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={newUserRole}
+                              onChange={e => setNewUserRole(e.target.value as any)}
+                            >
+                              <option value="Operador">Operador (Estoque normal)</option>
+                              <option value="Administrador">Administrador (Total)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Status de Entrada</label>
+                            <select 
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={newUserStatus}
+                              onChange={e => setNewUserStatus(e.target.value as any)}
+                            >
+                              <option value="Autorizado">Autorizado (Acesso imediato)</option>
+                              <option value="Pendente">Pendente (Requer aprovação posterior)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {newUserMsg.text && (
+                          <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                            newUserMsg.type === 'success' 
+                              ? 'bg-emerald-950/20 border-emerald-900/30 text-emerald-400' 
+                              : 'bg-red-950/20 border-red-900/30 text-red-400'
+                          }`}>
+                            {newUserMsg.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                            <span>{newUserMsg.text}</span>
+                          </div>
+                        )}
+
+                        <div className="pt-4 border-t border-slate-800 flex justify-end">
+                          <button
+                            type="submit"
+                            className={`px-5 py-2.5 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${themeColors.primaryBg}`}
+                          >
+                            <UserPlus size={14} />
+                            <span>Cadastrar Usuário</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Sub-Tab 4: Database Maintenance original options */}
+                  {settingsActiveSubTab === 'maintenance' && (
+                    <div className="max-w-xl space-y-8">
+                      <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl shadow-xl space-y-6">
+                        <div className="flex items-center gap-3 text-red-400">
+                          <Trash2 size={26} />
+                          <h2 className="text-xl font-extrabold text-white">Manutenção do Banco de Dados</h2>
+                        </div>
+                        
+                        <p className="text-sm text-slate-400 leading-relaxed">
+                          Esta tela permite que você realize operações administrativas no banco de dados do PharmaStock. Você pode zerar todos os dados para começar um inventário corporativo real, ou restaurar os dados fictícios padrão para demonstrações.
+                        </p>
+
+                        <div className="p-4 bg-red-950/20 rounded-xl border border-red-900/30 space-y-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                              <Trash2 size={16} /> Opção: Limpar Sistema (Lançamentos Novos)
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Isso removerá instantaneamente todos os insumos cadastrados, ambulâncias e pedidos de forma definitiva do Firestore. O recurso de carregamento automático de demonstração será desativado para deixar o sistema vazio e pronto para uso real.
+                            </p>
+                          </div>
+
+                          {showClearConfirm ? (
+                            <div className="p-4 bg-red-950/80 border border-red-800 rounded-xl space-y-3">
+                              <p className="text-xs font-bold text-red-200">
+                                ⚠️ TEM CERTEZA ABSOLUTA? Esta operação removerá definitivamente todos os dados do banco de dados e localstorage. Isto é irreversível.
+                              </p>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={isClearing}
+                                  onClick={handleClearDatabase}
+                                  className="px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all"
+                                >
+                                  {isClearing ? 'Efetuando Limpeza...' : 'Sim, Apagar Tudo'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isClearing}
+                                  onClick={() => setShowClearConfirm(false)}
+                                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setShowClearConfirm(true); setShowRestoreConfirm(false); }}
+                              className="w-full sm:w-auto px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 border border-red-500/20"
+                            >
+                              Zerar e Iniciar Novo Estoque
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="p-4 bg-emerald-950/20 rounded-xl border border-emerald-900/30 space-y-4 mt-6">
+                          <div>
+                            <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                              <RefreshCw size={16} /> Opção: Restaurar Amostras de Teste
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Utilize para popular o sistema novamente com itens representativos (Amoxicilina, Dipirona, Soro Fisiológico) para fins de teste ou demonstração visual das funcionalidades. Heurísticas de controle serão reativadas.
+                            </p>
+                          </div>
+
+                          {showRestoreConfirm ? (
+                            <div className="p-4 bg-emerald-950/80 border border-emerald-850 rounded-xl space-y-3">
+                              <p className="text-xs font-bold text-emerald-200">
+                                Aviso: Isso substituirá os registros atuais para carregar as amostras padrão de fábrica. Continuar?
+                              </p>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={isClearing}
+                                  onClick={handleRestoreDefaults}
+                                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all"
+                                >
+                                  {isClearing ? 'Restaurando...' : 'Sim, Restaurar'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isClearing}
+                                  onClick={() => setShowRestoreConfirm(false)}
+                                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setShowRestoreConfirm(true); setShowClearConfirm(false); }}
+                              className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 border border-emerald-700/20"
+                            >
+                              Restaurar Dados de Amostra
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="max-w-xl mx-auto pb-12 text-center p-8 bg-slate-900/40 border border-slate-800 rounded-2xl shadow-xl space-y-4">

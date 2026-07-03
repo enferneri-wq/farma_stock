@@ -21,6 +21,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // System settings rules
+    match /settings/{settingsId} {
+      allow read, write: if true;
+    }
+
+    // App users and authorizations rules
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
     // Test connection rules
     match /test/{docId} {
       allow read: if true;
