@@ -2,13 +2,252 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import Database from "better-sqlite3";
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Banco de dados JSON puro para evitar compilação nativa de better-sqlite3 na Hostinger
+class JSONDatabase {
+  private filePath: string;
+  private data: {
+    inventory: any[];
+    ambulances: any[];
+    orders: any[];
+  };
+
+  constructor(filename: string) {
+    this.filePath = path.join(process.cwd(), filename.replace(".db", ".json"));
+    this.load();
+  }
+
+  private load() {
+    if (fs.existsSync(this.filePath)) {
+      try {
+        this.data = JSON.parse(fs.readFileSync(this.filePath, "utf-8"));
+      } catch (err) {
+        console.error("Error reading JSON database, resetting:", err);
+        this.reset();
+      }
+    } else {
+      this.reset();
+    }
+  }
+
+  private reset() {
+    this.data = {
+      inventory: [],
+      ambulances: [],
+      orders: []
+    };
+    this.save();
+  }
+
+  private save() {
+    try {
+      fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), "utf-8");
+    } catch (err) {
+      console.error("Error saving JSON database:", err);
+    }
+  }
+
+  exec(sql: string) {
+    // Mock de tabelas
+    return;
+  }
+
+  prepare(sql: string) {
+    const normalized = sql.trim().replace(/\s+/g, " ");
+    const self = this;
+
+    return {
+      all(...args: any[]) {
+        self.load();
+
+        if (normalized.includes("PRAGMA table_info")) {
+          return [{ name: "id" }, { name: "name" }, { name: "batch" }, { name: "expiry_date" }, { name: "quantity" }, { name: "min_stock" }, { name: "is_donation" }, { name: "category" }];
+        }
+
+        if (normalized.startsWith("SELECT * FROM inventory")) {
+          if (normalized.includes("expiry_date <= date") || normalized.includes("quantity < min_stock")) {
+            // Alerts query
+            const thirtyDaysFromNow = new Date();
+            thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+            return self.data.inventory.filter(item => {
+              const expDate = new Date(item.expiry_date);
+              const isClose = expDate <= thirtyDaysFromNow;
+              const isLow = (item.quantity ?? 0) < (item.min_stock ?? 5);
+              return isClose || isLow;
+            });
+          }
+          if (normalized.includes("is_donation = 1")) {
+            return self.data.inventory.filter(item => item.is_donation === 1);
+          }
+          return self.data.inventory;
+        }
+
+        if (normalized.startsWith("SELECT * FROM ambulances")) {
+          return self.data.ambulances;
+        }
+
+        if (normalized.startsWith("SELECT * FROM orders")) {
+          return [...self.data.orders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        }
+
+        if (normalized.includes("category as name, SUM(quantity) as value FROM inventory GROUP BY category")) {
+          const distribution: { [key: string]: number } = {};
+          self.data.inventory.forEach(item => {
+            const cat = item.category || 'Medicamento';
+            distribution[cat] = (distribution[cat] || 0) + (item.quantity || 0);
+          });
+          return Object.keys(distribution).map(key => ({
+            name: key,
+            value: distribution[key]
+          }));
+        }
+
+        return [];
+      },
+
+      get(...args: any[]) {
+        self.load();
+
+        if (normalized.includes("SELECT COUNT(*) as count FROM inventory")) {
+          return { count: self.data.inventory.length };
+        }
+        if (normalized.includes("SELECT COUNT(*) as count FROM ambulances")) {
+          return { count: self.data.ambulances.length };
+        }
+        if (normalized.includes("SELECT COUNT(*) as count FROM orders")) {
+          return { count: self.data.orders.length };
+        }
+        if (normalized.includes("SELECT SUM(quantity) as total FROM inventory")) {
+          const total = self.data.inventory.reduce((sum, item) => sum + (item.quantity || 0), 0);
+          return { total };
+        }
+        if (normalized.includes("SELECT COUNT(*) as count FROM inventory WHERE quantity < min_stock")) {
+          const count = self.data.inventory.filter(item => (item.quantity ?? 0) < (item.min_stock ?? 5)).length;
+          return { count };
+        }
+        if (normalized.includes("SELECT COUNT(*) as count FROM inventory WHERE is_donation = 1")) {
+          const count = self.data.inventory.filter(item => item.is_donation === 1).length;
+          return { count };
+        }
+        if (normalized.includes("SELECT COUNT(*) as count FROM inventory WHERE expiry_date <= date")) {
+          const thirtyDaysFromNow = new Date();
+          thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+          const count = self.data.inventory.filter(item => {
+            const expDate = new Date(item.expiry_date);
+            return expDate <= thirtyDaysFromNow;
+          }).length;
+          return { count };
+        }
+
+        return null;
+      },
+
+      run(...args: any[]) {
+        self.load();
+        let lastInsertRowid = 0;
+
+        if (normalized.startsWith("INSERT INTO inventory")) {
+          const [name, batch, expiry_date, quantity, min_stock, is_donation, category] = args;
+          const id = self.data.inventory.length > 0 ? Math.max(...self.data.inventory.map(i => Number(i.id) || 0)) + 1 : 1;
+          const newItem = {
+            id,
+            name,
+            batch,
+            expiry_date,
+            quantity: Number(quantity) || 0,
+            min_stock: Number(min_stock) || 5,
+            is_donation: Number(is_donation) || 0,
+            category: category || "Medicamento"
+          };
+          self.data.inventory.push(newItem);
+          lastInsertRowid = id;
+        }
+
+        else if (normalized.startsWith("INSERT INTO ambulances")) {
+          const [name, status] = args;
+          const id = self.data.ambulances.length > 0 ? Math.max(...self.data.ambulances.map(a => Number(a.id) || 0)) + 1 : 1;
+          const newAmbulance = {
+            id,
+            name,
+            status: status || "Equipada",
+            items: []
+          };
+          self.data.ambulances.push(newAmbulance);
+          lastInsertRowid = id;
+        }
+
+        else if (normalized.startsWith("INSERT INTO orders")) {
+          const [type, item_name, quantity, status] = args;
+          const id = self.data.orders.length > 0 ? Math.max(...self.data.orders.map(o => Number(o.id) || 0)) + 1 : 1;
+          const newOrder = {
+            id,
+            type,
+            item_name,
+            quantity: Number(quantity) || 0,
+            status: status || "Pendente",
+            created_at: new Date().toISOString()
+          };
+          self.data.orders.push(newOrder);
+          lastInsertRowid = id;
+        }
+
+        else if (normalized.startsWith("UPDATE inventory")) {
+          const [name, batch, expiry_date, quantity, min_stock, is_donation, category, id] = args;
+          const index = self.data.inventory.findIndex(item => String(item.id) === String(id));
+          if (index !== -1) {
+            self.data.inventory[index] = {
+              ...self.data.inventory[index],
+              name,
+              batch,
+              expiry_date,
+              quantity: Number(quantity) || 0,
+              min_stock: Number(min_stock) || 5,
+              is_donation: Number(is_donation) || 0,
+              category: category || "Medicamento"
+            };
+          }
+        }
+
+        else if (normalized.startsWith("UPDATE ambulances")) {
+          const [status, id] = args;
+          const index = self.data.ambulances.findIndex(amb => String(amb.id) === String(id));
+          if (index !== -1) {
+            self.data.ambulances[index] = {
+              ...self.data.ambulances[index],
+              status
+            };
+          }
+        }
+
+        else if (normalized.startsWith("UPDATE orders")) {
+          const [id] = args;
+          const index = self.data.orders.findIndex(ord => String(ord.id) === String(id));
+          if (index !== -1) {
+            self.data.orders[index] = {
+              ...self.data.orders[index],
+              status: "Concluído"
+            };
+          }
+        }
+
+        else if (normalized.startsWith("DELETE FROM inventory")) {
+          const [id] = args;
+          self.data.inventory = self.data.inventory.filter(item => String(item.id) !== String(id));
+        }
+
+        self.save();
+        return { lastInsertRowid };
+      }
+    };
+  }
+}
+
 // Inicialização do Banco de Dados
-const db = new Database("pharmastock.db");
+const db = new JSONDatabase("pharmastock.db");
 
 // Migração: Garantir que a coluna 'category' existe (caso a tabela já tenha sido criada anteriormente)
 try {
