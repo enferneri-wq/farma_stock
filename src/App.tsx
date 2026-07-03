@@ -309,6 +309,13 @@ export default function App() {
     }
   }, [activeTab, isAdmin, user]);
 
+  // Sync document title with system name
+  useEffect(() => {
+    if (systemSettings?.systemName) {
+      document.title = systemSettings.systemName;
+    }
+  }, [systemSettings?.systemName]);
+
   // Auth Observer
   useEffect(() => {
     const localUserSession = localStorage.getItem('pharmastock_user_session');
