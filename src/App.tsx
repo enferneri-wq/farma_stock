@@ -268,6 +268,12 @@ export default function App() {
     primaryColor: 'emerald' as 'emerald' | 'blue' | 'indigo' | 'violet' | 'rose'
   });
   const [appUsers, setAppUsers] = useState<any[]>([]);
+  const [currentUserProfile, setCurrentUserProfile] = useState<any | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileAvatar, setProfileAvatar] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [settingsActiveSubTab, setSettingsActiveSubTab] = useState<'branding' | 'users' | 'createUser' | 'maintenance'>('branding');
 
   // Form states for creating a user
@@ -437,11 +443,15 @@ export default function App() {
         const email = currentUser.email || '';
         const isSuperAdmin = email === 'sinron@pharmastock.com' || email === 'sinron' || email.split('@')[0] === 'sinron';
         
+        const matchedUser = usersList.find(u => u.email.toLowerCase() === email.toLowerCase() || u.email.split('@')[0].toLowerCase() === email.toLowerCase());
+        if (matchedUser) {
+          setCurrentUserProfile(matchedUser);
+        }
+        
         if (isSuperAdmin) {
           setIsPendingAuthorization(false);
           setIsAdmin(true);
         } else {
-          const matchedUser = usersList.find(u => u.email.toLowerCase() === email.toLowerCase() || u.email.split('@')[0].toLowerCase() === email.toLowerCase());
           if (matchedUser) {
             if (matchedUser.role === 'Administrador' || matchedUser.status === 'Autorizado') {
               setIsPendingAuthorization(false);
@@ -458,11 +468,14 @@ export default function App() {
               createdAt: new Date().toISOString()
             };
             try {
-              await addDoc(collection(db, 'users'), newUserRecord);
+              const addedDoc = await addDoc(collection(db, 'users'), newUserRecord);
+              const withId = { id: addedDoc.id, ...newUserRecord };
+              usersList.push(withId);
+              setCurrentUserProfile(withId);
             } catch (addErr) {
               console.warn("Failed to save new user to Firestore:", addErr);
+              usersList.push(newUserRecord);
             }
-            usersList.push(newUserRecord);
             setAppUsers([...usersList]);
             localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
             setIsPendingAuthorization(true);
@@ -478,120 +491,46 @@ export default function App() {
     try {
       await testConnection();
 
-      const bDontSeed = localStorage.getItem('pharmastock_dont_auto_seed') === 'true';
-
       // 1. Fetch Inventory Items
       let inv: Item[] = [];
       try {
         const inventoryCol = collection(db, 'inventory');
-        let inventorySnapshot = await getDocs(inventoryCol);
-
-        // Seed if empty AND not blocked by clean flag
-        if (inventorySnapshot.empty && !bDontSeed) {
-          const seedItems = [
-            { name: "Amoxicilina 500mg", batch: "A123", expiry_date: "2026-03-25", quantity: 150, min_stock: 20, is_donation: 0, category: "Antibiótico" },
-            { name: "Dipirona Sódica", batch: "B456", expiry_date: "2026-06-10", quantity: 8, min_stock: 15, is_donation: 0, category: "Analgésico" },
-            { name: "Paracetamol 750mg", batch: "C789", expiry_date: "2026-04-15", quantity: 200, min_stock: 30, is_donation: 1, category: "Analgésico" },
-            { name: "Soro Fisiológico 500ml", batch: "S001", expiry_date: "2027-01-01", quantity: 50, min_stock: 10, is_donation: 0, category: "Material" }
-          ];
-          for (const item of seedItems) {
-            await addDoc(inventoryCol, item);
-          }
-          inventorySnapshot = await getDocs(inventoryCol);
-        }
+        const inventorySnapshot = await getDocs(inventoryCol);
         inv = inventorySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         })) as any;
-        localStorage.setItem('pharmastock_inventory', JSON.stringify(inv));
       } catch (err) {
-        console.warn("Firestore retrieve inventory failed, falling back to LocalStorage:", err);
-        const localInv = localStorage.getItem('pharmastock_inventory');
-        if (localInv) {
-          inv = JSON.parse(localInv);
-        } else if (!bDontSeed) {
-          inv = [
-            { id: "s1", name: "Amoxicilina 500mg", batch: "A123", expiry_date: "2026-03-25", quantity: 150, min_stock: 20, is_donation: 0, category: "Antibiótico" },
-            { id: "s2", name: "Dipirona Sódica", batch: "B456", expiry_date: "2026-06-10", quantity: 8, min_stock: 15, is_donation: 0, category: "Analgésico" },
-            { id: "s3", name: "Paracetamol 750mg", batch: "C789", expiry_date: "2026-04-15", quantity: 200, min_stock: 30, is_donation: 1, category: "Analgésico" },
-            { id: "s4", name: "Soro Fisiológico 500ml", batch: "S001", expiry_date: "2027-01-01", quantity: 50, min_stock: 10, is_donation: 0, category: "Material" }
-          ];
-          localStorage.setItem('pharmastock_inventory', JSON.stringify(inv));
-        }
+        console.warn("Firestore retrieve inventory failed:", err);
+        inv = [];
       }
 
       // 2. Fetch Ambulances
       let amb: AmbulanceData[] = [];
       try {
         const ambulanceCol = collection(db, 'ambulances');
-        let ambulanceSnapshot = await getDocs(ambulanceCol);
-
-        // Seed if empty AND not blocked by clean flag
-        if (ambulanceSnapshot.empty && !bDontSeed) {
-          const seedAmbulances = [
-            { name: "Ambulância 01 - UTI", status: "Equipada" },
-            { name: "Ambulância 02 - Básica", status: "Reposição Necessária" },
-            { name: "Ambulância 03 - Suporte", status: "Equipada" }
-          ];
-          for (const a of seedAmbulances) {
-            await addDoc(ambulanceCol, a);
-          }
-          ambulanceSnapshot = await getDocs(ambulanceCol);
-        }
+        const ambulanceSnapshot = await getDocs(ambulanceCol);
         amb = ambulanceSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         })) as any;
-        localStorage.setItem('pharmastock_ambulances', JSON.stringify(amb));
       } catch (err) {
-        console.warn("Firestore retrieve ambulances failed, falling back to LocalStorage:", err);
-        const localAmb = localStorage.getItem('pharmastock_ambulances');
-        if (localAmb) {
-          amb = JSON.parse(localAmb);
-        } else if (!bDontSeed) {
-          amb = [
-            { id: "a1", name: "Ambulância 01 - UTI", status: "Equipada", items: [] },
-            { id: "a2", name: "Ambulância 02 - Básica", status: "Reposição Necessária", items: [] },
-            { id: "a3", name: "Ambulância 03 - Suporte", status: "Equipada", items: [] }
-          ];
-          localStorage.setItem('pharmastock_ambulances', JSON.stringify(amb));
-        }
+        console.warn("Firestore retrieve ambulances failed:", err);
+        amb = [];
       }
 
       // 3. Fetch Orders
       let ord: Order[] = [];
       try {
         const ordersCol = collection(db, 'orders');
-        let ordersSnapshot = await getDocs(ordersCol);
-
-        // Seed if empty AND not blocked by clean flag
-        if (ordersSnapshot.empty && !bDontSeed) {
-          const seedOrders = [
-            { type: "Pedido", item_name: "Gaze Estéril", quantity: 100, status: "Concluído", created_at: new Date(Date.now() - 86400000).toISOString() },
-            { type: "Devolução", item_name: "Seringa 5ml", quantity: 20, status: "Pendente", created_at: new Date().toISOString() }
-          ];
-          for (const order of seedOrders) {
-            await addDoc(ordersCol, order);
-          }
-          ordersSnapshot = await getDocs(ordersCol);
-        }
+        const ordersSnapshot = await getDocs(ordersCol);
         ord = ordersSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         })) as any;
-        localStorage.setItem('pharmastock_orders', JSON.stringify(ord));
       } catch (err) {
-        console.warn("Firestore retrieve orders failed, falling back to LocalStorage:", err);
-        const localOrd = localStorage.getItem('pharmastock_orders');
-        if (localOrd) {
-          ord = JSON.parse(localOrd);
-        } else if (!bDontSeed) {
-          ord = [
-            { id: "o1", type: "Pedido", item_name: "Gaze Estéril", quantity: 100, status: "Concluído", created_at: new Date(Date.now() - 86400000).toISOString() },
-            { id: "o2", type: "Devolução", item_name: "Seringa 5ml", quantity: 20, status: "Pendente", created_at: new Date().toISOString() }
-          ];
-          localStorage.setItem('pharmastock_orders', JSON.stringify(ord));
-        }
+        console.warn("Firestore retrieve orders failed:", err);
+        ord = [];
       }
 
       // Sort orders descending by created_at
@@ -987,6 +926,75 @@ export default function App() {
     } catch (err: any) {
       console.warn("Error in admin user creation:", err);
       setNewUserMsg({ type: 'error', text: `Erro: ${err?.message || String(err)}` });
+    }
+  };
+
+  // Avatar image handler
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 800000) { // Limit to ~800KB for Firestore safety
+        alert("A imagem é muito grande. Escolha uma imagem de até 800KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileAvatar(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Save profile changes to Firestore
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setIsSavingProfile(true);
+    try {
+      const email = user.email || '';
+      const usersCol = collection(db, 'users');
+      const usersSnapshot = await getDocs(usersCol);
+      const matched = usersSnapshot.docs.find(d => d.data().email?.toLowerCase() === email.toLowerCase());
+      
+      const profileData = {
+        displayName: profileName,
+        phone: profilePhone,
+        avatar: profileAvatar,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (matched) {
+        await updateDoc(doc(db, 'users', matched.id), profileData);
+        const updatedProfile = { ...matched.data(), id: matched.id, ...profileData };
+        setCurrentUserProfile(updatedProfile);
+        
+        const updatedUsersList = appUsers.map(u => u.id === matched.id ? updatedProfile : u);
+        setAppUsers(updatedUsersList);
+        localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsersList));
+      } else {
+        const newRecord = {
+          email: email,
+          role: isAdmin ? 'Administrador' : 'Operador',
+          status: 'Autorizado',
+          createdAt: new Date().toISOString(),
+          ...profileData
+        };
+        const addedDoc = await addDoc(usersCol, newRecord);
+        const withId = { id: addedDoc.id, ...newRecord };
+        setCurrentUserProfile(withId);
+        
+        const updatedUsersList = [...appUsers, withId];
+        setAppUsers(updatedUsersList);
+        localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsersList));
+      }
+      
+      setIsProfileModalOpen(false);
+      alert("Perfil atualizado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao salvar perfil:", err);
+      alert("Erro ao salvar perfil no banco de dados.");
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -1808,16 +1816,34 @@ export default function App() {
         </div>
 
         {/* User Badge */}
-        <div className="px-6 py-3 border-y border-slate-800 bg-slate-950/30 flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-sm uppercase bg-slate-800 ${themeColors.text}`}>
-            {user.email ? (user.email.includes('@') ? user.email.split('@')[0][0] : user.email[0]) : 'U'}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs text-slate-400 font-mono truncate">
-              {user.email && user.email.includes('@') ? user.email.split('@')[0] : user.email}
+        <div 
+          onClick={() => {
+            setProfileName(currentUserProfile?.displayName || (user.email ? user.email.split('@')[0] : ''));
+            setProfilePhone(currentUserProfile?.phone || '');
+            setProfileAvatar(currentUserProfile?.avatar || '');
+            setIsProfileModalOpen(true);
+          }}
+          className="px-6 py-3 border-y border-slate-800 bg-slate-950/30 flex items-center gap-3 cursor-pointer hover:bg-slate-900/40 transition-all group"
+          title="Editar Perfil"
+        >
+          {currentUserProfile?.avatar ? (
+            <img 
+              src={currentUserProfile.avatar} 
+              alt="Avatar" 
+              className="w-8 h-8 rounded-full object-cover border border-slate-700 group-hover:border-emerald-500 transition-all"
+            />
+          ) : (
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-sm uppercase bg-slate-800 ${themeColors.text} border border-transparent group-hover:border-emerald-500 transition-all`}>
+              {currentUserProfile?.displayName ? currentUserProfile.displayName[0] : (user.email ? (user.email.includes('@') ? user.email.split('@')[0][0] : user.email[0]) : 'U')}
+            </div>
+          )}
+          <div className="flex flex-col min-w-0 flex-1">
+            <span className="text-xs text-slate-200 font-bold truncate group-hover:text-white transition-all">
+              {currentUserProfile?.displayName || (user.email && user.email.includes('@') ? user.email.split('@')[0] : user.email)}
             </span>
-            <span className={`text-[9px] font-bold tracking-wider uppercase ${themeColors.text}`}>
-              {isAdmin ? 'Administrador' : 'Operador'}
+            <span className={`text-[9px] font-bold tracking-wider uppercase flex items-center gap-1 ${themeColors.text}`}>
+              <span>{isAdmin ? 'Administrador' : 'Operador'}</span>
+              <span className="text-[8px] text-slate-500 group-hover:text-emerald-400 font-normal normal-case ml-auto">(Editar)</span>
             </span>
           </div>
         </div>
@@ -2097,6 +2123,128 @@ export default function App() {
                       className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-500 transition-all shadow-lg"
                     >
                       SALVAR
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Profile Modal */}
+        <AnimatePresence>
+          {isProfileModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Editar Meu Perfil
+                  </h2>
+                  <button onClick={() => setIsProfileModalOpen(false)} className="text-slate-400 hover:text-white transition-colors bg-slate-800 p-1.5 rounded-lg border border-slate-700">
+                    <Plus size={18} className="rotate-45" />
+                  </button>
+                </div>
+                <form onSubmit={handleSaveProfile} className="p-6 space-y-5">
+                  {/* Avatar Upload Container */}
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400 w-full text-center">Foto do Perfil</span>
+                    <div className="relative group cursor-pointer">
+                      <input 
+                        type="file" 
+                        id="profile-avatar-input" 
+                        accept="image/*" 
+                        onChange={handleAvatarChange} 
+                        className="hidden" 
+                      />
+                      <label htmlFor="profile-avatar-input" className="cursor-pointer block relative">
+                        {profileAvatar ? (
+                          <img 
+                            src={profileAvatar} 
+                            alt="Avatar" 
+                            className="w-24 h-24 rounded-full object-cover border-2 border-emerald-500 shadow-xl"
+                          />
+                        ) : (
+                          <div className="w-24 h-24 rounded-full bg-slate-800 flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-emerald-500 text-slate-500 hover:text-emerald-400 transition-all shadow-xl">
+                            <Plus size={24} className="mb-1" />
+                            <span className="text-[10px] font-bold">Adicionar</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                          <span className="text-[10px] text-white font-bold bg-slate-900/80 px-2 py-1 rounded-full border border-slate-700">Alterar</span>
+                        </div>
+                      </label>
+                    </div>
+                    {profileAvatar && (
+                      <button 
+                        type="button" 
+                        onClick={() => setProfileAvatar('')}
+                        className="text-[10px] text-red-400 hover:text-red-300 font-bold transition-colors uppercase tracking-wider"
+                      >
+                        Remover Foto
+                      </button>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nome de Exibição</label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="Ex: Dr. Silva" 
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm text-white"
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Telefone / Ramal</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: (11) 99999-9999" 
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm text-white"
+                      value={profilePhone}
+                      onChange={(e) => setProfilePhone(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">E-mail (Não alterável)</label>
+                    <input 
+                      type="text" 
+                      disabled
+                      className="w-full px-4 py-2.5 bg-slate-950/50 border border-slate-800 rounded-xl text-sm text-slate-500 cursor-not-allowed"
+                      value={user?.email || ''}
+                    />
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsProfileModalOpen(false)}
+                      className="flex-1 px-4 py-2.5 border border-slate-800 text-slate-300 rounded-xl font-bold text-sm hover:bg-slate-800 transition-all"
+                    >
+                      CANCELAR
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingProfile}
+                      className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-500 transition-all shadow-lg flex items-center justify-center gap-2"
+                    >
+                      {isSavingProfile ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>SALVANDO...</span>
+                        </>
+                      ) : (
+                        <span>SALVAR PERFIL</span>
+                      )}
                     </button>
                   </div>
                 </form>
