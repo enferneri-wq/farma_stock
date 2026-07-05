@@ -310,6 +310,15 @@ export default function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
 
+  // Custom non-blocking delete target state
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    type: 'inventory' | 'ambulance' | 'order' | 'ambulance_item';
+    name: string;
+    ambulanceId?: string;
+    itemIdInAmbulance?: string;
+  } | null>(null);
+
   useEffect(() => {
     if (activeTab === 'settings' && !isAdmin && user) {
       setActiveTab('dashboard');
@@ -503,7 +512,24 @@ export default function App() {
         })) as any;
       } catch (err) {
         console.warn("Firestore retrieve inventory failed:", err);
-        inv = [];
+      }
+
+      const localInvStr = localStorage.getItem('pharmastock_inventory');
+      if (inv.length === 0 && localInvStr) {
+        try {
+          const parsed = JSON.parse(localInvStr);
+          if (parsed && parsed.length > 0) {
+            inv = parsed;
+            // Try to sync to Firestore in background
+            const inventoryCol = collection(db, 'inventory');
+            parsed.forEach((item: any) => {
+              const { id, ...data } = item;
+              addDoc(inventoryCol, data).catch(e => console.warn("Background auto-sync failed:", e));
+            });
+          }
+        } catch (e) {
+          console.error("Error loading fallback local inventory:", e);
+        }
       }
 
       // 2. Fetch Ambulances
@@ -511,13 +537,38 @@ export default function App() {
       try {
         const ambulanceCol = collection(db, 'ambulances');
         const ambulanceSnapshot = await getDocs(ambulanceCol);
-        amb = ambulanceSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as any;
+        amb = ambulanceSnapshot.docs.map(doc => {
+          const data = doc.data() as any;
+          const items = (data.items || []).map((item: any, idx: number) => ({
+            ...item,
+            id: item.id !== undefined && item.id !== null && item.id !== '' ? String(item.id) : `item_${idx}_${Math.random().toString(36).substring(2, 7)}`
+          }));
+          return {
+            id: doc.id,
+            ...data,
+            items
+          };
+        }) as any;
       } catch (err) {
         console.warn("Firestore retrieve ambulances failed:", err);
-        amb = [];
+      }
+
+      const localAmbStr = localStorage.getItem('pharmastock_ambulances');
+      if (amb.length === 0 && localAmbStr) {
+        try {
+          const parsed = JSON.parse(localAmbStr);
+          if (parsed && parsed.length > 0) {
+            amb = parsed;
+            // Try to sync to Firestore in background
+            const ambulanceCol = collection(db, 'ambulances');
+            parsed.forEach((item: any) => {
+              const { id, ...data } = item;
+              addDoc(ambulanceCol, data).catch(e => console.warn("Background auto-sync failed:", e));
+            });
+          }
+        } catch (e) {
+          console.error("Error loading fallback local ambulances:", e);
+        }
       }
 
       // 3. Fetch Orders
@@ -531,19 +582,93 @@ export default function App() {
         })) as any;
       } catch (err) {
         console.warn("Firestore retrieve orders failed:", err);
-        ord = [];
       }
+
+      const localOrdStr = localStorage.getItem('pharmastock_orders');
+      if (ord.length === 0 && localOrdStr) {
+        try {
+          const parsed = JSON.parse(localOrdStr);
+          if (parsed && parsed.length > 0) {
+            ord = parsed;
+            // Try to sync to Firestore in background
+            const ordersCol = collection(db, 'orders');
+            parsed.forEach((item: any) => {
+              const { id, ...data } = item;
+              addDoc(ordersCol, data).catch(e => console.warn("Background auto-sync failed:", e));
+            });
+          }
+        } catch (e) {
+          console.error("Error loading fallback local orders:", e);
+        }
+      }
+
+      // Merge Firestore results with pending local items to resolve Firestore replication lag/offline scenarios
+      const pendingLocalInv: Item[] = [];
+      if (localInvStr) {
+        try {
+          const parsed = JSON.parse(localInvStr);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item: any) => {
+              if (item.id && String(item.id).startsWith('inv_')) {
+                const alreadySynced = inv.some((fi: any) => fi.name?.toLowerCase().trim() === item.name?.toLowerCase().trim() && fi.batch === item.batch);
+                if (!alreadySynced) {
+                  pendingLocalInv.push(item);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      inv = [...inv, ...pendingLocalInv];
+
+      const pendingLocalAmb: AmbulanceData[] = [];
+      if (localAmbStr) {
+        try {
+          const parsed = JSON.parse(localAmbStr);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((ambItem: any) => {
+              if (ambItem.id && String(ambItem.id).startsWith('amb_')) {
+                const alreadySynced = amb.some((fa: any) => fa.name?.toLowerCase().trim() === ambItem.name?.toLowerCase().trim());
+                if (!alreadySynced) {
+                  pendingLocalAmb.push(ambItem);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      amb = [...amb, ...pendingLocalAmb];
+
+      const pendingLocalOrders: Order[] = [];
+      if (localOrdStr) {
+        try {
+          const parsed = JSON.parse(localOrdStr);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((order: any) => {
+              if (order.id && String(order.id).startsWith('ord_')) {
+                const alreadySynced = ord.some((fo: any) => fo.item_name?.toLowerCase().trim() === order.item_name?.toLowerCase().trim() && fo.quantity === order.quantity);
+                if (!alreadySynced) {
+                  pendingLocalOrders.push(order);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      ord = [...ord, ...pendingLocalOrders];
 
       // Sort orders descending by created_at
       ord.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       // 4. Calculate stats
       const totalCentralItems = inv.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
-      const totalAmbItems = amb.reduce((acc, a) => {
-        const items = a.items || [];
-        return acc + items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0);
-      }, 0);
-      const totalItems = totalCentralItems + totalAmbItems;
+      const totalItems = totalCentralItems;
 
       const lowStock = inv.filter(item => (item.quantity ?? 0) < (item.min_stock ?? 5)).length;
       const donationsCount = inv.filter(item => item.is_donation === 1).length;
@@ -552,14 +677,7 @@ export default function App() {
         const status = getExpiryStatus(item.expiry_date);
         return status.isClose;
       }).length;
-      const ambExpiring = amb.reduce((acc, a) => {
-        const items = a.items || [];
-        return acc + items.filter((item: any) => {
-          const status = getExpiryStatus(item.expiry_date);
-          return status.isClose;
-        }).length;
-      }, 0);
-      const expiringSoon = centralExpiring + ambExpiring;
+      const expiringSoon = centralExpiring;
 
       const sum: Summary = {
         totalItems,
@@ -601,13 +719,6 @@ export default function App() {
         const cat = item.category || 'Medicamento';
         categoryMap[cat] = (categoryMap[cat] || 0) + (item.quantity || 0);
       });
-      amb.forEach(a => {
-        const items = a.items || [];
-        items.forEach((item: any) => {
-          const cat = item.category || 'Medicamento';
-          categoryMap[cat] = (categoryMap[cat] || 0) + (Number(item.quantity) || 0);
-        });
-      });
       const rep = Object.keys(categoryMap).map(key => ({
         name: key,
         value: categoryMap[key]
@@ -626,6 +737,11 @@ export default function App() {
       setAlerts(alrt);
       setOrders(ord);
       setReportData(rep);
+
+      // Sincronizar dados recuperados com o local storage
+      localStorage.setItem('pharmastock_inventory', JSON.stringify(inv));
+      localStorage.setItem('pharmastock_ambulances', JSON.stringify(amb));
+      localStorage.setItem('pharmastock_orders', JSON.stringify(ord));
     } catch (err) {
       console.error("Error fetching data:", err);
     }
@@ -852,11 +968,22 @@ export default function App() {
 
   const handleDeleteAppUser = async (userToDelete: any) => {
     if (userToDelete.email === 'sinron@pharmastock.com' || userToDelete.email === 'sinron') {
-      alert("O usuário administrador principal 'sinron' não pode ser excluído.");
+      try {
+        alert("O usuário administrador principal 'sinron' não pode ser excluído.");
+      } catch (e) {
+        console.warn("alert blocked:", e);
+      }
       return;
     }
 
-    if (!confirm(`Deseja realmente excluir o usuário ${userToDelete.email}?`)) {
+    let confirmou = false;
+    try {
+      confirmou = window.confirm(`Deseja realmente excluir o usuário ${userToDelete.email}?`);
+    } catch (e) {
+      console.warn("window.confirm is blocked in this environment, bypassing confirmation", e);
+      confirmou = true;
+    }
+    if (!confirmou) {
       return;
     }
 
@@ -1160,12 +1287,27 @@ export default function App() {
       }
       
       // Deduct from central stock
+      const newQty = matchedItem.quantity - demandQty;
       try {
         const itemDoc = doc(db, 'inventory', matchedItem.id);
-        const newQty = matchedItem.quantity - demandQty;
         await updateDoc(itemDoc, { quantity: newQty });
       } catch (err) {
         console.warn("Erro ao atualizar o estoque central:", err);
+      }
+
+      // Sync local inventory state
+      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
+
+      // Sync local storage
+      const localInv = localStorage.getItem('pharmastock_inventory');
+      if (localInv) {
+        try {
+          let items = JSON.parse(localInv);
+          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+        } catch (e) {
+          console.error("Error parsing local inventory:", e);
+        }
       }
     } else {
       alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
@@ -1216,8 +1358,72 @@ export default function App() {
   const handleUpdateAmbulanceItemQty = async (itemId: string, increment: number) => {
     if (!selectedAmbulance) return;
     const currentItems = selectedAmbulance.items || [];
+    const targetItem = currentItems.find((item: any) => String(item.id) === String(itemId));
+    if (!targetItem) return;
+
+    // Find the matching item in the central inventory
+    const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === targetItem.name.toLowerCase().trim());
+
+    if (increment > 0) {
+      // Deduct from central stock
+      if (!matchedItem || matchedItem.quantity < increment) {
+        alert(`⚠️ Não há saldo suficiente no estoque central para essa alteração (${matchedItem ? matchedItem.quantity : 0} disponíveis).`);
+        return;
+      }
+
+      const newCentralQty = matchedItem.quantity - increment;
+      try {
+        const itemDoc = doc(db, 'inventory', matchedItem.id);
+        await updateDoc(itemDoc, { quantity: newCentralQty });
+      } catch (err) {
+        console.warn("Could not sync inventory quantity decrement:", err);
+      }
+      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
+
+      // Sync local storage
+      const localInv = localStorage.getItem('pharmastock_inventory');
+      if (localInv) {
+        try {
+          let items = JSON.parse(localInv);
+          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
+          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    } else if (increment < 0) {
+      // Return to central stock
+      if (targetItem.quantity + increment < 1) {
+        // Minimum reached, user must delete the item if they want to remove it
+        return;
+      }
+
+      if (matchedItem) {
+        const newCentralQty = matchedItem.quantity + Math.abs(increment);
+        try {
+          const itemDoc = doc(db, 'inventory', matchedItem.id);
+          await updateDoc(itemDoc, { quantity: newCentralQty });
+        } catch (err) {
+          console.warn("Could not sync inventory quantity increment:", err);
+        }
+        setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
+
+        // Sync local storage
+        const localInv = localStorage.getItem('pharmastock_inventory');
+        if (localInv) {
+          try {
+            let items = JSON.parse(localInv);
+            items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
+            localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+    }
+
     const updatedItems = currentItems.map((item: any) => {
-      if (item.id === itemId) {
+      if (String(item.id) === String(itemId)) {
         const newQty = Math.max(1, item.quantity + increment);
         return { ...item, quantity: newQty };
       }
@@ -1238,40 +1444,16 @@ export default function App() {
     );
     setAmbulances(updatedAmbulances);
     setSelectedAmbulance({ ...selectedAmbulance, items: updatedItems });
+    localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
+
+    // Refresh state
+    await fetchData();
   };
 
   const handleDeleteAmbulanceItem = async (itemId: string, ambId?: string) => {
     const targetAmbId = ambId || (selectedAmbulance ? selectedAmbulance.id : null);
     if (!targetAmbId) return;
-
-    const targetAmb = ambulances.find((a: any) => a.id === targetAmbId);
-    if (!targetAmb) return;
-
-    if (!window.confirm(`Deseja realmente remover este item da viatura "${targetAmb.name}"?`)) return;
-    const currentItems = targetAmb.items || [];
-    const updatedItems = currentItems.filter((item: any) => item.id !== itemId);
-
-    try {
-      const ambDoc = doc(db, 'ambulances', targetAmbId);
-      await updateDoc(ambDoc, {
-        items: updatedItems
-      });
-    } catch (err) {
-      console.warn("Could not delete from Firebase:", err);
-    }
-
-    const updatedAmbulances = ambulances.map((a: any) => 
-      a.id === targetAmbId ? { ...a, items: updatedItems } : a
-    );
-    
-    // Sync local storage
-    localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
-
-    setAmbulances(updatedAmbulances);
-    if (selectedAmbulance && selectedAmbulance.id === targetAmbId) {
-      setSelectedAmbulance({ ...selectedAmbulance, items: updatedItems });
-    }
-    alert("Item removido da viatura com sucesso!");
+    await handleDelete(itemId, false, targetAmbId, itemId);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -1339,14 +1521,14 @@ export default function App() {
         const demandQty = Number(formData.quantity) || 1;
         const isRequest = (formData.type || 'Pedido') === 'Pedido';
 
-        if (isRequest) {
-          let matchedItem = null;
-          if (formData.selectedItemId) {
-            matchedItem = inventory.find(item => item.id === formData.selectedItemId);
-          } else {
-            matchedItem = inventory.find(item => item.name.toLowerCase() === formData.item_name.trim().toLowerCase());
-          }
+        let matchedItem: any = null;
+        if (formData.selectedItemId) {
+          matchedItem = inventory.find(item => item.id === formData.selectedItemId);
+        } else {
+          matchedItem = inventory.find(item => item.name.toLowerCase() === formData.item_name.trim().toLowerCase());
+        }
 
+        if (isRequest) {
           if (!matchedItem || matchedItem.quantity <= 0) {
             alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
             return;
@@ -1356,6 +1538,78 @@ export default function App() {
             alert(`⚠️ Não é possível cadastrar este material ou medicamento pois a quantidade solicitada (${demandQty}) ultrapassa o estoque disponível (${matchedItem.quantity}).`);
             return;
           }
+
+          // Deduct from central stock immediately!
+          const newQty = matchedItem.quantity - demandQty;
+          try {
+            const itemDoc = doc(db, 'inventory', matchedItem.id);
+            await updateDoc(itemDoc, { quantity: newQty });
+          } catch (err) {
+            console.warn("Could not sync inventory on order creation:", err);
+          }
+          setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
+
+          // Sync local storage
+          const localInv = localStorage.getItem('pharmastock_inventory');
+          if (localInv) {
+            try {
+              let items = JSON.parse(localInv);
+              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+              localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        } else {
+          // Devolution (Inflow): enters the system!
+          if (matchedItem) {
+            const newQty = matchedItem.quantity + demandQty;
+            try {
+              const itemDoc = doc(db, 'inventory', matchedItem.id);
+              await updateDoc(itemDoc, { quantity: newQty });
+            } catch (err) {
+              console.warn("Could not sync inventory on devolution creation:", err);
+            }
+            setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
+
+            // Sync local storage
+            const localInv = localStorage.getItem('pharmastock_inventory');
+            if (localInv) {
+              try {
+                let items = JSON.parse(localInv);
+                items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+                localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          } else {
+            // Register as a new inventory item since it doesn't exist
+            const newInvId = 'inv_' + Math.random().toString(36).substring(2, 11);
+            const newItemData = {
+              name: formData.item_name,
+              batch: 'DEV-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
+              expiry_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 6 months from now
+              quantity: demandQty,
+              min_stock: 5,
+              is_donation: 0,
+              category: 'Medicamento'
+            };
+
+            try {
+              const itemCol = collection(db, 'inventory');
+              await addDoc(itemCol, newItemData);
+            } catch (err) {
+              console.warn("Could not save new inventory item from devolution:", err);
+            }
+
+            setInventory(prev => [...prev, { id: newInvId, ...newItemData }]);
+
+            const localInv = localStorage.getItem('pharmastock_inventory');
+            const items = localInv ? JSON.parse(localInv) : [];
+            items.push({ id: newInvId, ...newItemData });
+            localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+          }
         }
 
         const newId = 'ord_' + Math.random().toString(36).substring(2, 11);
@@ -1363,9 +1617,9 @@ export default function App() {
           type: formData.type || 'Pedido',
           item_name: formData.item_name,
           quantity: demandQty,
-          status: 'Pendente',
+          status: 'Concluído',
           created_at: new Date().toISOString(),
-          inventoryItemId: formData.selectedItemId || null
+          inventoryItemId: (matchedItem && matchedItem.id) || null
         };
 
         try {
@@ -1428,56 +1682,230 @@ export default function App() {
     }
   };
 
-  const handleDelete = async (id: string, isCentral?: boolean, ambulanceId?: string, itemIdInAmbulance?: string) => {
+  const handleDelete = (id: string, isCentral?: boolean, ambulanceId?: string, itemIdInAmbulance?: string) => {
     if (!id) return;
-    
+
+    let targetName = '';
+    let deleteType: 'inventory' | 'ambulance_item' = 'inventory';
+
     if (ambulanceId && itemIdInAmbulance) {
-      // It's from an ambulance, delete it from there
-      await handleDeleteAmbulanceItem(itemIdInAmbulance, ambulanceId);
-      return;
+      const amb = ambulances.find((a: any) => String(a.id) === String(ambulanceId));
+      const ambItem = amb?.items?.find((item: any) => String(item.id) === String(itemIdInAmbulance));
+      if (ambItem) {
+        targetName = ambItem.name;
+        deleteType = 'ambulance_item';
+      }
+    } else {
+      const invItem = inventory.find((item: any) => String(item.id) === String(id));
+      if (invItem) {
+        targetName = invItem.name;
+      } else {
+        // Look up in alerts list
+        const alertItem = alerts.find((a: any) => String(a.id) === String(id));
+        if (alertItem) {
+          const rawName = alertItem.name || '';
+          const match = rawName.match(/^(.*?)\s*\((.*?)\)$/);
+          targetName = match ? match[1].trim() : rawName.trim();
+        }
+      }
     }
 
-    // Alerta de confirmação solicitado pelo usuário
-    const confirmou = window.confirm("⚠️ Tem certeza que deseja excluir permanentemente este insumo do estoque integrado?");
-    if (!confirmou) {
-      return;
-    }
+    setDeleteTarget({
+      id,
+      type: deleteType,
+      name: targetName || 'Insumo',
+      ambulanceId,
+      itemIdInAmbulance
+    });
+  };
+
+  const performDelete = async () => {
+    if (!deleteTarget) return;
+    const { id, type, name, ambulanceId, itemIdInAmbulance } = deleteTarget;
 
     try {
       // Bloquear sementes/auto-seeding futuros se deletarmos manualmente
       localStorage.setItem('pharmastock_dont_auto_seed', 'true');
 
-      // Tenta deletar do Firestore
-      const isMockId = (id.length <= 4 && id.startsWith('s')) || id.startsWith('inv_');
-      if (!isMockId) {
+      if (type === 'inventory') {
+        // Delete from central inventory (regardless of custom ID prefixes)
         try {
           const itemDoc = doc(db, 'inventory', id);
           await deleteDoc(itemDoc);
         } catch (err) {
-          console.warn("Could not delete from Firestore (deleting locally):", err);
+          console.warn(`Could not delete item ${id} from Firestore:`, err);
         }
-      }
 
-      // Sincronizar com local storage
-      const localInv = localStorage.getItem('pharmastock_inventory');
-      if (localInv) {
+        // Sync local storage and state
+        const localInv = localStorage.getItem('pharmastock_inventory');
+        if (localInv) {
+          try {
+            let items = JSON.parse(localInv);
+            items = items.filter((item: any) => String(item.id) !== String(id));
+            localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        setInventory(prev => prev.filter(item => String(item.id) !== String(id)));
+
+        // Also delete from any ambulance that has this item by name to be consistent!
+        const updatedAmbulances = await Promise.all(ambulances.map(async (amb: any) => {
+          const currentItems = amb.items || [];
+          const filteredItems = currentItems.filter((item: any) => (item.name || '').toLowerCase().trim() !== name.toLowerCase().trim());
+          if (filteredItems.length !== currentItems.length) {
+            try {
+              const ambDoc = doc(db, 'ambulances', amb.id);
+              await updateDoc(ambDoc, { items: filteredItems });
+            } catch (err) {
+              console.warn(err);
+            }
+          }
+          return { ...amb, items: filteredItems };
+        }));
+        setAmbulances(updatedAmbulances);
+        localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
+
+        if (selectedAmbulance) {
+          const matched = updatedAmbulances.find(a => String(a.id) === String(selectedAmbulance.id));
+          setSelectedAmbulance(matched || null);
+        }
+
+      } else if (type === 'ambulance') {
+        // Delete entire ambulance
+        // Before deleting, return all of its items back to the central stock!
+        const targetAmb = ambulances.find(a => String(a.id) === String(id));
+        if (targetAmb) {
+          const ambItems = targetAmb.items || [];
+          for (const ambItem of ambItems) {
+            const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === ambItem.name.toLowerCase().trim());
+            if (matchedItem) {
+              const newCentralQty = matchedItem.quantity + Number(ambItem.quantity);
+              try {
+                const itemDoc = doc(db, 'inventory', matchedItem.id);
+                await updateDoc(itemDoc, { quantity: newCentralQty });
+              } catch (err) {
+                console.warn("Could not return item to inventory during ambulance deletion:", err);
+              }
+              setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
+              
+              // Sync local inventory storage
+              const localInv = localStorage.getItem('pharmastock_inventory');
+              if (localInv) {
+                try {
+                  let items = JSON.parse(localInv);
+                  items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
+                  localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+            }
+          }
+        }
+
         try {
-          let items = JSON.parse(localInv);
-          items = items.filter((item: any) => item.id !== id);
-          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
-        } catch (e) {
-          console.error("Error parsing local inventory:", e);
+          const ambDoc = doc(db, 'ambulances', id);
+          await deleteDoc(ambDoc);
+        } catch (err) {
+          console.warn(err);
+        }
+        setAmbulances(prev => prev.filter(a => String(a.id) !== String(id)));
+        const localAmb = localStorage.getItem('pharmastock_ambulances');
+        if (localAmb) {
+          try {
+            let ambs = JSON.parse(localAmb);
+            ambs = ambs.filter((a: any) => String(a.id) !== String(id));
+            localStorage.setItem('pharmastock_ambulances', JSON.stringify(ambs));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        if (selectedAmbulance && String(selectedAmbulance.id) === String(id)) {
+          setSelectedAmbulance(null);
+        }
+
+      } else if (type === 'order') {
+        // Delete a pending or completed order
+        try {
+          const orderDoc = doc(db, 'orders', id);
+          await deleteDoc(orderDoc);
+        } catch (err) {
+          console.warn(err);
+        }
+        setOrders(prev => prev.filter(o => String(o.id) !== String(id)));
+        const localOrd = localStorage.getItem('pharmastock_orders');
+        if (localOrd) {
+          try {
+            let ords = JSON.parse(localOrd);
+            ords = ords.filter((o: any) => String(o.id) !== String(id));
+            localStorage.setItem('pharmastock_orders', JSON.stringify(ords));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+      } else if (type === 'ambulance_item') {
+        // Delete a single item from a specific ambulance
+        const targetAmbId = ambulanceId || (selectedAmbulance ? selectedAmbulance.id : null);
+        if (targetAmbId) {
+          const updatedAmbulances = await Promise.all(ambulances.map(async (amb: any) => {
+            if (String(amb.id) === String(targetAmbId)) {
+              const currentItems = amb.items || [];
+              const filteredItems = currentItems.filter((item: any) => String(item.id) !== String(itemIdInAmbulance));
+              
+              // Return the deleted item's quantity back to the central stock!
+              const deletedItem = currentItems.find((item: any) => String(item.id) === String(itemIdInAmbulance));
+              if (deletedItem) {
+                const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === deletedItem.name.toLowerCase().trim());
+                if (matchedItem) {
+                  const newCentralQty = matchedItem.quantity + Number(deletedItem.quantity);
+                  try {
+                    const itemDoc = doc(db, 'inventory', matchedItem.id);
+                    await updateDoc(itemDoc, { quantity: newCentralQty });
+                  } catch (err) {
+                    console.warn(err);
+                  }
+                  setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
+                }
+              }
+
+              try {
+                const ambDoc = doc(db, 'ambulances', amb.id);
+                await updateDoc(ambDoc, { items: filteredItems });
+              } catch (err) {
+                console.warn(err);
+              }
+              return { ...amb, items: filteredItems };
+            }
+            return amb;
+          }));
+
+          setAmbulances(updatedAmbulances);
+          localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
+
+          if (selectedAmbulance && String(selectedAmbulance.id) === String(targetAmbId)) {
+            const matched = updatedAmbulances.find(a => String(a.id) === String(targetAmbId));
+            setSelectedAmbulance(matched || null);
+          }
         }
       }
 
-      // Atualizar estado de tela imediatamente para feedback instantâneo
-      setInventory(prev => prev.filter(item => item.id !== id));
+      // Success alerts according to deletion type
+      if (type === 'inventory') {
+        alert(`✅ "${name}" foi excluído permanentemente do estoque central e de toda a frota de viaturas com sucesso!`);
+      } else if (type === 'ambulance') {
+        alert(`✅ Viatura "${name}" e todos os seus itens alocados foram excluídos com sucesso!`);
+      } else if (type === 'order') {
+        alert(`✅ Registro de movimentação do item "${name}" foi excluído com sucesso!`);
+      } else if (type === 'ambulance_item') {
+        alert(`✅ "${name}" foi removido da viatura e o saldo correspondente foi devolvido ao estoque central com sucesso!`);
+      }
 
+      setDeleteTarget(null);
       await fetchData();
-      alert("Insumo excluído com sucesso do estoque!");
     } catch (err) {
-      console.error("Error deleting:", err);
-      alert("Erro ao excluir o insumo do estoque. Por favor, tente novamente.");
+      console.error("Error executing custom performDelete:", err);
     }
   };
 
@@ -1501,7 +1929,12 @@ export default function App() {
         if (matchedItem) {
           const change = matchedOrder.type === 'Pedido' ? -Number(matchedOrder.quantity) : Number(matchedOrder.quantity);
           const oldQty = Number(matchedItem.quantity) || 0;
-          const newQty = Math.max(0, oldQty + change);
+          const newQty = oldQty + change;
+
+          if (matchedOrder.type === 'Pedido' && newQty < 0) {
+            alert(`⚠️ Não é possível concluir esta saída pois o estoque central possui apenas ${oldQty} unidades de "${matchedItem.name}", mas o pedido solicita ${matchedOrder.quantity} unidades.`);
+            return;
+          }
 
           // Update in Firestore
           try {
@@ -1998,6 +2431,69 @@ export default function App() {
           </div>
         </header>
 
+        {/* Custom Delete Confirmation Modal */}
+        <AnimatePresence>
+          {deleteTarget && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="p-5 border-b border-slate-800 flex items-center gap-3 bg-red-950/20">
+                  <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20 text-red-400">
+                    <Trash2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Confirmar Exclusão</h3>
+                    <p className="text-slate-400 text-[11px]">Esta ação não poderá ser desfeita</p>
+                  </div>
+                </div>
+                
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-slate-300 leading-relaxed">
+                    {deleteTarget.type === 'inventory' ? (
+                      <span>
+                        Você tem certeza que deseja excluir permanentemente o item <strong className="text-white">"{deleteTarget.name}"</strong>? Ele será removido do <strong>estoque central</strong> e de <strong>toda a frota de viaturas</strong> do sistema.
+                      </span>
+                    ) : deleteTarget.type === 'ambulance' ? (
+                      <span>
+                        Você tem certeza que deseja remover a viatura <strong className="text-white">"{deleteTarget.name}"</strong> do sistema? Todo o seu histórico e materiais alocados serão apagados.
+                      </span>
+                    ) : deleteTarget.type === 'order' ? (
+                      <span>
+                        Você tem certeza que deseja remover este registro de movimentação/pedido de <strong className="text-white">"{deleteTarget.name}"</strong>?
+                      </span>
+                    ) : (
+                      <span>
+                        Você tem certeza que deseja remover o item <strong className="text-white">"{deleteTarget.name}"</strong> desta viatura? O saldo correspondente será devolvido ao estoque central.
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-950/40 border-t border-slate-800 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(null)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all border border-slate-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={performDelete}
+                    className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all border border-red-500/20 shadow-lg shadow-red-500/10"
+                  >
+                    Sim, Excluir
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Modal */}
         <AnimatePresence>
           {isModalOpen && (
@@ -2475,15 +2971,28 @@ export default function App() {
                                 </p>
                               </div>
                             </div>
-                            <button 
-                              onClick={() => {
-                                setActiveTab('inventory');
-                                setSearchTerm(alert.name);
-                              }}
-                              className="bg-slate-900 text-emerald-400 hover:text-emerald-300 font-bold hover:bg-slate-800 border border-slate-800 hover:border-slate-700 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 text-xs"
-                            >
-                              Ver Detalhes <ChevronRight size={14} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => {
+                                  setActiveTab('inventory');
+                                  setSearchTerm(alert.name);
+                                }}
+                                className="bg-slate-900 text-emerald-400 hover:text-emerald-300 font-bold hover:bg-slate-800 border border-slate-800 hover:border-slate-700 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 text-xs"
+                              >
+                                Ver Detalhes <ChevronRight size={14} />
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDelete(alert.id, alert.isCentral, alert.ambulanceId, alert.itemIdInAmbulance);
+                                }}
+                                className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-red-500 border border-slate-800 rounded-lg transition-colors"
+                                title="Excluir do Sistema"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         );
                       }) : (
@@ -2508,12 +3017,21 @@ export default function App() {
                                 <Ambulance size={18} className="text-slate-400" />
                                 <span className="font-bold text-white text-sm">{amb.name}</span>
                               </div>
-                              <button 
-                                onClick={() => handleOpenModal('ambulance', amb)}
-                                className="text-slate-500 hover:text-emerald-400 text-xs"
-                              >
-                                Alterar
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button 
+                                  onClick={() => handleOpenModal('ambulance', amb)}
+                                  className="text-slate-500 hover:text-emerald-400 text-xs font-semibold px-2 py-1 rounded hover:bg-slate-900 transition-colors"
+                                >
+                                  Alterar
+                                </button>
+                                <button 
+                                  onClick={() => setDeleteTarget({ id: amb.id, type: 'ambulance', name: amb.name })}
+                                  className="text-slate-500 hover:text-red-500 p-1 rounded hover:bg-slate-900 transition-colors"
+                                  title="Excluir Viatura"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             </div>
                             <div className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full inline-block ${
                               isUnderRep 
@@ -2701,6 +3219,17 @@ export default function App() {
                               className="text-xs text-emerald-400 font-bold hover:underline bg-slate-950 px-2 py-1 rounded border border-slate-800"
                             >
                               Saída/Editar
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDelete(item.id, item.isCentral, item.ambulanceId, item.itemIdInAmbulance);
+                              }}
+                              className="p-1 px-1.5 text-slate-500 hover:text-red-500 hover:bg-slate-950 rounded border border-slate-800 transition-colors"
+                              title="Excluir do Sistema"
+                            >
+                              <Trash2 size={13} />
                             </button>
                             <span className={`text-lg font-mono font-bold ${expiry.isCritical ? 'text-red-400' : expiry.isClose ? 'text-amber-400' : 'text-emerald-400'}`}>{item.quantity}</span>
                           </div>
@@ -3078,6 +3607,7 @@ export default function App() {
                           <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-right">Qtd</th>
                           <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest">Data</th>
                           <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-center">Status</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-center">Ações</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
@@ -3106,10 +3636,23 @@ export default function App() {
                                 </span>
                               )}
                             </td>
+                            <td className="px-6 py-4 text-center">
+                              <button 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id: order.id, type: 'order', name: order.item_name });
+                                }}
+                                className="p-1.5 bg-slate-950 hover:bg-red-950/40 text-slate-500 hover:text-red-400 border border-slate-800 hover:border-red-900/30 rounded-lg transition-all"
+                                title="Excluir Registro de Movimentação"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
                           </tr>
                         )) : (
                           <tr>
-                            <td colSpan={5} className="text-center py-8 text-slate-500 italic text-sm">Nenhum pedido de fluxo criado.</td>
+                            <td colSpan={6} className="text-center py-8 text-slate-500 italic text-sm">Nenhum pedido de fluxo criado.</td>
                           </tr>
                         )}
                       </tbody>
