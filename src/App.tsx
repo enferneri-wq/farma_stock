@@ -315,6 +315,7 @@ export default function App() {
     id: string;
     type: 'inventory' | 'ambulance' | 'order' | 'ambulance_item';
     name: string;
+    batch?: string;
     ambulanceId?: string;
     itemIdInAmbulance?: string;
   } | null>(null);
@@ -431,6 +432,19 @@ export default function App() {
           await addDoc(collection(db, 'users'), initialAdmin);
           usersList.push(initialAdmin);
         }
+
+        // Ensure developer user is in the list as Admin
+        const hasDevInList = usersList.some(u => u.email === 'ctephtreinamento@gmail.com' || u.email === 'ctephtreinamento');
+        if (!hasDevInList) {
+          const initialDev = {
+            email: 'ctephtreinamento@gmail.com',
+            role: 'Administrador',
+            status: 'Autorizado',
+            createdAt: new Date().toISOString()
+          };
+          await addDoc(collection(db, 'users'), initialDev);
+          usersList.push(initialDev);
+        }
         
         setAppUsers(usersList);
         localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
@@ -441,7 +455,8 @@ export default function App() {
           usersList = JSON.parse(localUsers);
         } else {
           usersList = [
-            { id: 'u1', email: 'sinron@pharmastock.com', role: 'Administrador', status: 'Autorizado', createdAt: new Date().toISOString() }
+            { id: 'u1', email: 'sinron@pharmastock.com', role: 'Administrador', status: 'Autorizado', createdAt: new Date().toISOString() },
+            { id: 'u2', email: 'ctephtreinamento@gmail.com', role: 'Administrador', status: 'Autorizado', createdAt: new Date().toISOString() }
           ];
           localStorage.setItem('pharmastock_users', JSON.stringify(usersList));
         }
@@ -451,7 +466,7 @@ export default function App() {
       // 3. Verify currentUser authorization status
       if (currentUser) {
         const email = currentUser.email || '';
-        const isSuperAdmin = email === 'sinron@pharmastock.com' || email === 'sinron' || email.split('@')[0] === 'sinron';
+        const isSuperAdmin = email === 'sinron@pharmastock.com' || email === 'sinron' || email.split('@')[0] === 'sinron' || email === 'ctephtreinamento@gmail.com' || email.split('@')[0] === 'ctephtreinamento';
         
         const matchedUser = usersList.find(u => u.email.toLowerCase() === email.toLowerCase() || u.email.split('@')[0].toLowerCase() === email.toLowerCase());
         if (matchedUser) {
@@ -1614,9 +1629,11 @@ export default function App() {
             category: formData.category || 'Medicamento'
           };
 
+          let resolvedId = newId;
           try {
             const itemCol = collection(db, 'inventory');
-            await addDoc(itemCol, newItemData);
+            const docRef = await addDoc(itemCol, newItemData);
+            resolvedId = docRef.id;
           } catch (err) {
             console.warn("Could not write to Firestore (saving locally):", err);
           }
@@ -1624,7 +1641,7 @@ export default function App() {
           // Sync local storage
           const localInv = localStorage.getItem('pharmastock_inventory');
           const items = localInv ? JSON.parse(localInv) : [];
-          items.push({ id: newId, ...newItemData });
+          items.push({ id: resolvedId, ...newItemData });
           localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
         }
       } else if (modalType === 'order') {
@@ -1712,18 +1729,20 @@ export default function App() {
               category: 'Medicamento'
             };
 
+            let resolvedInvId = newInvId;
             try {
               const itemCol = collection(db, 'inventory');
-              await addDoc(itemCol, newItemData);
+              const docRef = await addDoc(itemCol, newItemData);
+              resolvedInvId = docRef.id;
             } catch (err) {
               console.warn("Could not save new inventory item from devolution:", err);
             }
 
-            setInventory(prev => [...prev, { id: newInvId, ...newItemData }]);
+            setInventory(prev => [...prev, { id: resolvedInvId, ...newItemData }]);
 
             const localInv = localStorage.getItem('pharmastock_inventory');
             const items = localInv ? JSON.parse(localInv) : [];
-            items.push({ id: newInvId, ...newItemData });
+            items.push({ id: resolvedInvId, ...newItemData });
             localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
           }
         }
@@ -1738,9 +1757,11 @@ export default function App() {
           inventoryItemId: (matchedItem && matchedItem.id) || null
         };
 
+        let resolvedId = newId;
         try {
           const orderCol = collection(db, 'orders');
-          await addDoc(orderCol, newOrderData);
+          const docRef = await addDoc(orderCol, newOrderData);
+          resolvedId = docRef.id;
         } catch (err) {
           console.warn("Could not write to Firestore (saving order locally):", err);
         }
@@ -1748,7 +1769,7 @@ export default function App() {
         // Sync local storage
         const localOrd = localStorage.getItem('pharmastock_orders');
         const orders = localOrd ? JSON.parse(localOrd) : [];
-        orders.push({ id: newId, ...newOrderData });
+        orders.push({ id: resolvedId, ...newOrderData });
         localStorage.setItem('pharmastock_orders', JSON.stringify(orders));
       } else if (modalType === 'ambulance') {
         if (editingItem) {
@@ -1776,9 +1797,11 @@ export default function App() {
             items: []
           };
 
+          let resolvedId = newId;
           try {
             const ambCol = collection(db, 'ambulances');
-            await addDoc(ambCol, newAmbData);
+            const docRef = await addDoc(ambCol, newAmbData);
+            resolvedId = docRef.id;
           } catch (err) {
             console.warn("Could not write to Firestore (saving ambulance locally):", err);
           }
@@ -1786,7 +1809,7 @@ export default function App() {
           // Sync local storage
           const localAmb = localStorage.getItem('pharmastock_ambulances');
           const ambs = localAmb ? JSON.parse(localAmb) : [];
-          ambs.push({ id: newId, ...newAmbData });
+          ambs.push({ id: resolvedId, ...newAmbData });
           localStorage.setItem('pharmastock_ambulances', JSON.stringify(ambs));
         }
       }
@@ -1802,6 +1825,7 @@ export default function App() {
     if (!id) return;
 
     let targetName = '';
+    let targetBatch = '';
     let deleteType: 'inventory' | 'ambulance_item' = 'inventory';
 
     if (ambulanceId && itemIdInAmbulance) {
@@ -1809,12 +1833,14 @@ export default function App() {
       const ambItem = amb?.items?.find((item: any) => String(item.id) === String(itemIdInAmbulance));
       if (ambItem) {
         targetName = ambItem.name;
+        targetBatch = ambItem.batch || '';
         deleteType = 'ambulance_item';
       }
     } else {
       const invItem = inventory.find((item: any) => String(item.id) === String(id));
       if (invItem) {
         targetName = invItem.name;
+        targetBatch = invItem.batch || '';
       } else {
         // Look up in alerts list
         const alertItem = alerts.find((a: any) => String(a.id) === String(id));
@@ -1822,6 +1848,7 @@ export default function App() {
           const rawName = alertItem.name || '';
           const match = rawName.match(/^(.*?)\s*\((.*?)\)$/);
           targetName = match ? match[1].trim() : rawName.trim();
+          targetBatch = alertItem.batch || '';
         }
       }
     }
@@ -1830,6 +1857,7 @@ export default function App() {
       id,
       type: deleteType,
       name: targetName || 'Insumo',
+      batch: targetBatch,
       ambulanceId,
       itemIdInAmbulance
     });
@@ -1837,7 +1865,7 @@ export default function App() {
 
   const performDelete = async () => {
     if (!deleteTarget) return;
-    const { id, type, name, ambulanceId, itemIdInAmbulance } = deleteTarget;
+    const { id, type, name, batch, ambulanceId, itemIdInAmbulance } = deleteTarget;
 
     try {
       // Bloquear sementes/auto-seeding futuros se deletarmos manualmente
@@ -1857,13 +1885,19 @@ export default function App() {
         if (localInv) {
           try {
             let items = JSON.parse(localInv);
-            items = items.filter((item: any) => String(item.id) !== String(id));
+            items = items.filter((item: any) => 
+              String(item.id) !== String(id) && 
+              !(item.name?.toLowerCase().trim() === name.toLowerCase().trim() && (!batch || item.batch === batch))
+            );
             localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
           } catch (e) {
             console.error(e);
           }
         }
-        setInventory(prev => prev.filter(item => String(item.id) !== String(id)));
+        setInventory(prev => prev.filter(item => 
+          String(item.id) !== String(id) && 
+          !(item.name?.toLowerCase().trim() === name.toLowerCase().trim() && (!batch || item.batch === batch))
+        ));
 
         // Also delete from any ambulance that has this item by name to be consistent!
         const updatedAmbulances = await Promise.all(ambulances.map(async (amb: any) => {
@@ -1895,12 +1929,12 @@ export default function App() {
         } catch (err) {
           console.warn(err);
         }
-        setAmbulances(prev => prev.filter(a => String(a.id) !== String(id)));
+        setAmbulances(prev => prev.filter(a => String(a.id) !== String(id) && !(a.name?.toLowerCase().trim() === name.toLowerCase().trim())));
         const localAmb = localStorage.getItem('pharmastock_ambulances');
         if (localAmb) {
           try {
             let ambs = JSON.parse(localAmb);
-            ambs = ambs.filter((a: any) => String(a.id) !== String(id));
+            ambs = ambs.filter((a: any) => String(a.id) !== String(id) && !(a.name?.toLowerCase().trim() === name.toLowerCase().trim()));
             localStorage.setItem('pharmastock_ambulances', JSON.stringify(ambs));
           } catch (e) {
             console.error(e);
@@ -1918,12 +1952,12 @@ export default function App() {
         } catch (err) {
           console.warn(err);
         }
-        setOrders(prev => prev.filter(o => String(o.id) !== String(id)));
+        setOrders(prev => prev.filter(o => String(o.id) !== String(id) && !(o.item_name?.toLowerCase().trim() === name.toLowerCase().trim())));
         const localOrd = localStorage.getItem('pharmastock_orders');
         if (localOrd) {
           try {
             let ords = JSON.parse(localOrd);
-            ords = ords.filter((o: any) => String(o.id) !== String(id));
+            ords = ords.filter((o: any) => String(o.id) !== String(id) && !(o.item_name?.toLowerCase().trim() === name.toLowerCase().trim()));
             localStorage.setItem('pharmastock_orders', JSON.stringify(ords));
           } catch (e) {
             console.error(e);
@@ -2040,16 +2074,18 @@ export default function App() {
               category: 'Medicamento'
             };
 
+            let resolvedInvId = newInvId;
             try {
               const itemCol = collection(db, 'inventory');
-              await addDoc(itemCol, newItemData);
+              const docRef = await addDoc(itemCol, newItemData);
+              resolvedInvId = docRef.id;
             } catch (err) {
               console.warn("Could not save new inventory item from devolution:", err);
             }
 
             const localInv = localStorage.getItem('pharmastock_inventory');
             const items = localInv ? JSON.parse(localInv) : [];
-            items.push({ id: newInvId, ...newItemData });
+            items.push({ id: resolvedInvId, ...newItemData });
             localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
           }
         }
