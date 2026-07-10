@@ -666,6 +666,24 @@ export default function App() {
       // Sort orders descending by created_at
       ord.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+      // Adjust central inventory quantities based on ambulance allocations (dynamic calculation)
+      inv = inv.map(item => {
+        let allocated = 0;
+        amb.forEach(a => {
+          const items = a.items || [];
+          items.forEach((ambItem: any) => {
+            if ((ambItem.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim()) {
+              allocated += Number(ambItem.quantity) || 0;
+            }
+          });
+        });
+        return {
+          ...item,
+          total_quantity: item.quantity, // Preserve original total
+          quantity: Math.max(0, (item.quantity || 0) - allocated) // Adjusted available central stock
+        };
+      });
+
       // 4. Calculate stats
       const totalCentralItems = inv.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
       const totalItems = totalCentralItems;
@@ -1236,6 +1254,158 @@ export default function App() {
         console.warn("Could not clear Firestore before restore:", err);
       }
 
+      // Seed default inventory items to Firestore
+      const defaultInventory = [
+        {
+          name: "Amoxicilina 500mg",
+          batch: "AMX-8274",
+          expiry_date: "2026-11-20",
+          quantity: 120,
+          min_stock: 20,
+          is_donation: 0,
+          category: "Medicamento"
+        },
+        {
+          name: "Dipirona Sódica 500mg/ml",
+          batch: "DIP-9302",
+          expiry_date: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          quantity: 250,
+          min_stock: 30,
+          is_donation: 0,
+          category: "Medicamento"
+        },
+        {
+          name: "Soro Fisiológico 0.9% 500ml",
+          batch: "SOR-1092",
+          expiry_date: "2027-04-15",
+          quantity: 80,
+          min_stock: 25,
+          is_donation: 0,
+          category: "Material Médico"
+        },
+        {
+          name: "Atadura de Crepom 10cm x 4.5m",
+          batch: "ATA-5561",
+          expiry_date: "2028-08-10",
+          quantity: 90,
+          min_stock: 15,
+          is_donation: 1,
+          category: "Material Médico"
+        },
+        {
+          name: "Ibuprofeno 600mg",
+          batch: "IBU-3410",
+          expiry_date: "2026-04-10",
+          quantity: 60,
+          min_stock: 15,
+          is_donation: 0,
+          category: "Medicamento"
+        },
+        {
+          name: "Atropina 0.25mg/ml",
+          batch: "ATR-4491",
+          expiry_date: "2027-01-30",
+          quantity: 4,
+          min_stock: 10,
+          is_donation: 0,
+          category: "Medicamento"
+        },
+        {
+          name: "Paracetamol 500mg",
+          batch: "PAR-2204",
+          expiry_date: "2026-12-05",
+          quantity: 150,
+          min_stock: 20,
+          is_donation: 1,
+          category: "Medicamento"
+        }
+      ];
+
+      for (const item of defaultInventory) {
+        await addDoc(collection(db, 'inventory'), item);
+      }
+
+      // Seed default ambulances to Firestore
+      const defaultAmbulances = [
+        {
+          name: "Viatura Alfa-01 (U.T.I.)",
+          status: "Equipada",
+          items: [
+            {
+              id: "item_dipirona",
+              name: "Dipirona Sódica 500mg/ml",
+              category: "Medicamento",
+              quantity: 8,
+              batch: "DIP-9302",
+              expiry_date: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+            },
+            {
+              id: "item_soro",
+              name: "Soro Fisiológico 0.9% 500ml",
+              category: "Material Médico",
+              quantity: 4,
+              batch: "SOR-1092",
+              expiry_date: "2027-04-15"
+            }
+          ]
+        },
+        {
+          name: "Viatura Bravo-02 (Suporte Básico)",
+          status: "Equipada",
+          items: [
+            {
+              id: "item_amoxicilina",
+              name: "Amoxicilina 500mg",
+              category: "Medicamento",
+              quantity: 5,
+              batch: "AMX-8274",
+              expiry_date: "2026-11-20"
+            }
+          ]
+        },
+        {
+          name: "Viatura Resgate-03",
+          status: "Manutenção",
+          items: []
+        }
+      ];
+
+      for (const amb of defaultAmbulances) {
+        await addDoc(collection(db, 'ambulances'), amb);
+      }
+
+      // Seed default orders to Firestore
+      const defaultOrders = [
+        {
+          type: "Pedido",
+          item_name: "Amoxicilina 500mg",
+          quantity: 20,
+          status: "Concluído",
+          created_at: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
+          inventoryItemId: null
+        },
+        {
+          type: "Devolução",
+          item_name: "Dipirona Sódica 500mg/ml",
+          quantity: 10,
+          status: "Concluído",
+          created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+          inventoryItemId: null
+        },
+        {
+          type: "Pedido",
+          item_name: "Soro Fisiológico 0.9% 500ml",
+          quantity: 15,
+          status: "Pendente",
+          created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+          inventoryItemId: null
+        }
+      ];
+
+      for (const order of defaultOrders) {
+        await addDoc(collection(db, 'orders'), order);
+      }
+
       localStorage.removeItem('pharmastock_dont_auto_seed');
       localStorage.removeItem('pharmastock_inventory');
       localStorage.removeItem('pharmastock_ambulances');
@@ -1243,9 +1413,10 @@ export default function App() {
 
       setShowRestoreConfirm(false);
       await fetchData();
-      alert("Dados de exemplo restaurados com sucesso!");
+      alert("Dados de exemplo restaurados e gravados no banco de dados com sucesso!");
     } catch (err) {
       console.error(err);
+      alert("Erro ao restaurar dados de exemplo no banco de dados.");
     } finally {
       setIsClearing(false);
     }
@@ -1255,7 +1426,14 @@ export default function App() {
     setModalType(type);
     setEditingItem(item);
     if (type === 'inventory') {
-      setFormData(item || { name: '', batch: '', expiry_date: '', quantity: 0, min_stock: 5, is_donation: 0, category: 'Medicamento' });
+      if (item) {
+        setFormData({
+          ...item,
+          quantity: item.total_quantity !== undefined ? item.total_quantity : item.quantity
+        });
+      } else {
+        setFormData({ name: '', batch: '', expiry_date: '', quantity: 0, min_stock: 5, is_donation: 0, category: 'Medicamento' });
+      }
     } else if (type === 'order') {
       setFormData({ type: 'Pedido', item_name: '', quantity: 1 });
     } else if (type === 'ambulance') {
@@ -1284,30 +1462,6 @@ export default function App() {
       if (matchedItem.quantity < demandQty) {
         alert(`⚠️ Não é possível cadastrar este material ou medicamento pois a quantidade solicitada (${demandQty}) ultrapassa o estoque disponível (${matchedItem.quantity}).`);
         return;
-      }
-      
-      // Deduct from central stock
-      const newQty = matchedItem.quantity - demandQty;
-      try {
-        const itemDoc = doc(db, 'inventory', matchedItem.id);
-        await updateDoc(itemDoc, { quantity: newQty });
-      } catch (err) {
-        console.warn("Erro ao atualizar o estoque central:", err);
-      }
-
-      // Sync local inventory state
-      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
-
-      // Sync local storage
-      const localInv = localStorage.getItem('pharmastock_inventory');
-      if (localInv) {
-        try {
-          let items = JSON.parse(localInv);
-          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
-          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
-        } catch (e) {
-          console.error("Error parsing local inventory:", e);
-        }
       }
     } else {
       alert("⚠️ Não é possível cadastrar este material ou medicamento pois o estoque está zerado.");
@@ -1370,55 +1524,11 @@ export default function App() {
         alert(`⚠️ Não há saldo suficiente no estoque central para essa alteração (${matchedItem ? matchedItem.quantity : 0} disponíveis).`);
         return;
       }
-
-      const newCentralQty = matchedItem.quantity - increment;
-      try {
-        const itemDoc = doc(db, 'inventory', matchedItem.id);
-        await updateDoc(itemDoc, { quantity: newCentralQty });
-      } catch (err) {
-        console.warn("Could not sync inventory quantity decrement:", err);
-      }
-      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
-
-      // Sync local storage
-      const localInv = localStorage.getItem('pharmastock_inventory');
-      if (localInv) {
-        try {
-          let items = JSON.parse(localInv);
-          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
-          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
-        } catch (e) {
-          console.error(e);
-        }
-      }
     } else if (increment < 0) {
       // Return to central stock
       if (targetItem.quantity + increment < 1) {
         // Minimum reached, user must delete the item if they want to remove it
         return;
-      }
-
-      if (matchedItem) {
-        const newCentralQty = matchedItem.quantity + Math.abs(increment);
-        try {
-          const itemDoc = doc(db, 'inventory', matchedItem.id);
-          await updateDoc(itemDoc, { quantity: newCentralQty });
-        } catch (err) {
-          console.warn("Could not sync inventory quantity increment:", err);
-        }
-        setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
-
-        // Sync local storage
-        const localInv = localStorage.getItem('pharmastock_inventory');
-        if (localInv) {
-          try {
-            let items = JSON.parse(localInv);
-            items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
-            localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
-          } catch (e) {
-            console.error(e);
-          }
-        }
       }
     }
 
@@ -1539,22 +1649,25 @@ export default function App() {
             return;
           }
 
-          // Deduct from central stock immediately!
-          const newQty = matchedItem.quantity - demandQty;
+          // Deduct from central total stock!
+          const originalTotal = matchedItem.total_quantity !== undefined ? matchedItem.total_quantity : matchedItem.quantity;
+          const newTotalQty = originalTotal - demandQty;
+          const newAvailableQty = Math.max(0, matchedItem.quantity - demandQty);
+
           try {
             const itemDoc = doc(db, 'inventory', matchedItem.id);
-            await updateDoc(itemDoc, { quantity: newQty });
+            await updateDoc(itemDoc, { quantity: newTotalQty });
           } catch (err) {
             console.warn("Could not sync inventory on order creation:", err);
           }
-          setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
+          setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, total_quantity: newTotalQty, quantity: newAvailableQty } : item));
 
           // Sync local storage
           const localInv = localStorage.getItem('pharmastock_inventory');
           if (localInv) {
             try {
               let items = JSON.parse(localInv);
-              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newTotalQty } : item);
               localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
             } catch (e) {
               console.error(e);
@@ -1563,21 +1676,24 @@ export default function App() {
         } else {
           // Devolution (Inflow): enters the system!
           if (matchedItem) {
-            const newQty = matchedItem.quantity + demandQty;
+            const originalTotal = matchedItem.total_quantity !== undefined ? matchedItem.total_quantity : matchedItem.quantity;
+            const newTotalQty = originalTotal + demandQty;
+            const newAvailableQty = matchedItem.quantity + demandQty;
+
             try {
               const itemDoc = doc(db, 'inventory', matchedItem.id);
-              await updateDoc(itemDoc, { quantity: newQty });
+              await updateDoc(itemDoc, { quantity: newTotalQty });
             } catch (err) {
               console.warn("Could not sync inventory on devolution creation:", err);
             }
-            setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newQty } : item));
+            setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, total_quantity: newTotalQty, quantity: newAvailableQty } : item));
 
             // Sync local storage
             const localInv = localStorage.getItem('pharmastock_inventory');
             if (localInv) {
               try {
                 let items = JSON.parse(localInv);
-                items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+                items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newTotalQty } : item);
                 localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
               } catch (e) {
                 console.error(e);
@@ -1773,37 +1889,6 @@ export default function App() {
 
       } else if (type === 'ambulance') {
         // Delete entire ambulance
-        // Before deleting, return all of its items back to the central stock!
-        const targetAmb = ambulances.find(a => String(a.id) === String(id));
-        if (targetAmb) {
-          const ambItems = targetAmb.items || [];
-          for (const ambItem of ambItems) {
-            const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === ambItem.name.toLowerCase().trim());
-            if (matchedItem) {
-              const newCentralQty = matchedItem.quantity + Number(ambItem.quantity);
-              try {
-                const itemDoc = doc(db, 'inventory', matchedItem.id);
-                await updateDoc(itemDoc, { quantity: newCentralQty });
-              } catch (err) {
-                console.warn("Could not return item to inventory during ambulance deletion:", err);
-              }
-              setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
-              
-              // Sync local inventory storage
-              const localInv = localStorage.getItem('pharmastock_inventory');
-              if (localInv) {
-                try {
-                  let items = JSON.parse(localInv);
-                  items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item);
-                  localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
-                } catch (e) {
-                  console.error(e);
-                }
-              }
-            }
-          }
-        }
-
         try {
           const ambDoc = doc(db, 'ambulances', id);
           await deleteDoc(ambDoc);
@@ -1853,22 +1938,6 @@ export default function App() {
             if (String(amb.id) === String(targetAmbId)) {
               const currentItems = amb.items || [];
               const filteredItems = currentItems.filter((item: any) => String(item.id) !== String(itemIdInAmbulance));
-              
-              // Return the deleted item's quantity back to the central stock!
-              const deletedItem = currentItems.find((item: any) => String(item.id) === String(itemIdInAmbulance));
-              if (deletedItem) {
-                const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === deletedItem.name.toLowerCase().trim());
-                if (matchedItem) {
-                  const newCentralQty = matchedItem.quantity + Number(deletedItem.quantity);
-                  try {
-                    const itemDoc = doc(db, 'inventory', matchedItem.id);
-                    await updateDoc(itemDoc, { quantity: newCentralQty });
-                  } catch (err) {
-                    console.warn(err);
-                  }
-                  setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, quantity: newCentralQty } : item));
-                }
-              }
 
               try {
                 const ambDoc = doc(db, 'ambulances', amb.id);
@@ -1928,18 +1997,20 @@ export default function App() {
 
         if (matchedItem) {
           const change = matchedOrder.type === 'Pedido' ? -Number(matchedOrder.quantity) : Number(matchedOrder.quantity);
-          const oldQty = Number(matchedItem.quantity) || 0;
-          const newQty = oldQty + change;
+          const oldTotalQty = Number(matchedItem.total_quantity !== undefined ? matchedItem.total_quantity : matchedItem.quantity) || 0;
+          const newTotalQty = oldTotalQty + change;
+          const newAvailableQty = (Number(matchedItem.quantity) || 0) + change;
 
-          if (matchedOrder.type === 'Pedido' && newQty < 0) {
-            alert(`⚠️ Não é possível concluir esta saída pois o estoque central possui apenas ${oldQty} unidades de "${matchedItem.name}", mas o pedido solicita ${matchedOrder.quantity} unidades.`);
+          if (matchedOrder.type === 'Pedido' && newAvailableQty < 0) {
+            const availableQty = Number(matchedItem.quantity) || 0;
+            alert(`⚠️ Não é possível concluir esta saída pois o estoque central possui apenas ${availableQty} unidades de "${matchedItem.name}", mas o pedido solicita ${matchedOrder.quantity} unidades.`);
             return;
           }
 
           // Update in Firestore
           try {
             const itemDoc = doc(db, 'inventory', matchedItem.id);
-            await updateDoc(itemDoc, { quantity: newQty });
+            await updateDoc(itemDoc, { quantity: newTotalQty });
           } catch (err) {
             console.warn("Could not sync complete-order quantity updates to Firestore:", err);
           }
@@ -1949,7 +2020,7 @@ export default function App() {
           if (localInv) {
             try {
               let items = JSON.parse(localInv);
-              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newQty } : item);
+              items = items.map((item: any) => item.id === matchedItem.id ? { ...item, quantity: newTotalQty } : item);
               localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
             } catch (e) {
               console.error("Error parsing local inventory:", e);
