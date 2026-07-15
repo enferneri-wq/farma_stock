@@ -243,6 +243,8 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [reportTab, setReportTab] = useState('geral');
+  const [reportFilter, setReportFilter] = useState<'all' | 'expired' | 'expiring_soon' | 'low_stock' | 'valid'>('all');
+  const [reportSort, setReportSort] = useState<'expiry_asc' | 'expiry_desc' | 'qty_asc' | 'qty_desc'>('expiry_asc');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [inventory, setInventory] = useState<Item[]>([]);
   const [ambulances, setAmbulances] = useState<AmbulanceData[]>([]);
@@ -2493,7 +2495,7 @@ export default function App() {
           <div className="flex flex-col items-center mb-8">
             <div className={`p-4 rounded-2xl border shadow-lg shadow-black/20 mb-3 ${themeColors.bg} ${themeColors.border}`}>
               {(systemSettings.logoType === 'url' || systemSettings.logoType === 'upload') && systemSettings.logoValue ? (
-                <img src={systemSettings.logoValue} alt="Logo" className="w-9 h-9 object-contain" referrerPolicy="no-referrer" />
+                <img src={systemSettings.logoValue} alt="Logo" className="w-10 h-10 object-cover rounded-xl" referrerPolicy="no-referrer" />
               ) : (
                 <LogoIcon iconName={systemSettings.logoValue} size={36} className={themeColors.text} />
               )}
@@ -2613,9 +2615,9 @@ export default function App() {
       <aside className="w-68 bg-[#090d1a] border-r border-slate-800 flex flex-col shrink-0">
         <div className="p-6">
           <div className={`flex items-center gap-3 font-bold text-xl ${themeColors.text}`}>
-            <div className={`p-2.5 rounded-xl shadow-md border ${themeColors.bg} ${themeColors.border}`}>
+            <div className={`w-11 h-11 rounded-xl shadow-md border flex items-center justify-center overflow-hidden ${themeColors.bg} ${themeColors.border}`}>
               {(systemSettings.logoType === 'url' || systemSettings.logoType === 'upload') && systemSettings.logoValue ? (
-                <img src={systemSettings.logoValue} alt="Logo" className="w-[22px] h-[22px] object-contain" referrerPolicy="no-referrer" />
+                <img src={systemSettings.logoValue} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 <LogoIcon iconName={systemSettings.logoValue} size={22} className={themeColors.text} />
               )}
@@ -4082,50 +4084,313 @@ export default function App() {
                   </div>
                 )}
 
-                {reportTab === 'estoque' && (
-                  <div className="bg-slate-900/40 p-8 rounded-2xl border border-slate-800">
-                    <div className="flex justify-between items-center mb-6">
-                      <div>
-                        <h3 className="text-lg font-bold text-white">Relatório Completo de Estoque e Alertas</h3>
-                        <p className="text-xs text-slate-400 mt-1">Exportação direta no formato para auditorias e fiscais.</p>
-                      </div>
-                      <button 
-                        onClick={() => generatePDF('inventory')}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md"
-                      >
-                        Compilar PDF
-                      </button>
-                    </div>
-                    <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                      {inventory.map(item => {
-                        const expiry = getExpiryStatus(item.expiry_date);
-                        return (
-                          <div key={item.id} className={`flex items-center justify-between p-4 rounded-xl border ${expiry.isClose ? 'bg-red-950/15 border-red-900/40' : 'bg-slate-950/20 border-slate-800'}`}>
-                            <div>
-                              <p className={`font-bold text-sm ${expiry.isCritical ? 'text-red-400' : expiry.isClose ? 'text-amber-400' : 'text-slate-100'}`}>
-                                {item.name}
-                              </p>
-                              <p className="text-xs mt-1 text-slate-400">
-                                Validade original:{' '}
-                                <span className={expiry.isClose ? (expiry.isCritical ? 'font-bold text-red-400' : 'font-semibold text-amber-400') : 'text-slate-350'}>
-                                  {item.expiry_date || 'Não Identificada'} {expiry.isClose && `(${expiry.label})`}
-                                </span>
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-bold text-sm text-white">{item.quantity} unidades</p>
-                              <div className="flex flex-col items-end gap-1 mt-1">
-                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${item.quantity < item.min_stock ? 'bg-red-950/40 text-red-400' : 'bg-emerald-950/20 text-emerald-400'}`}>
-                                  {item.quantity < item.min_stock ? 'Abaixo do Mínimo' : 'Nível Adequado'}
-                                </span>
-                              </div>
-                            </div>
+                {reportTab === 'estoque' && (() => {
+                  // Calculate dynamic totals for the inventory reports
+                  let expiredCount = 0;
+                  let expiringSoonCount = 0;
+                  let lowStockCount = 0;
+                  let validCount = 0;
+
+                  inventory.forEach(item => {
+                    const expiry = getExpiryStatus(item.expiry_date);
+                    if (expiry.isExpired) {
+                      expiredCount++;
+                    } else if (expiry.isClose) {
+                      expiringSoonCount++;
+                    } else {
+                      validCount++;
+                    }
+
+                    if (item.quantity < item.min_stock) {
+                      lowStockCount++;
+                    }
+                  });
+
+                  const filteredAndSortedInventory = inventory.filter(item => {
+                    const expiry = getExpiryStatus(item.expiry_date);
+                    const isExpired = expiry.isExpired === true;
+                    const isExpiringSoon = expiry.isClose === true && !isExpired;
+                    const isLowStock = item.quantity < item.min_stock;
+                    const isValid = !isExpired && !isExpiringSoon;
+
+                    if (reportFilter === 'expired') return isExpired;
+                    if (reportFilter === 'expiring_soon') return isExpiringSoon;
+                    if (reportFilter === 'low_stock') return isLowStock;
+                    if (reportFilter === 'valid') return isValid;
+                    return true; // 'all'
+                  }).sort((a, b) => {
+                    if (reportSort === 'expiry_asc') {
+                      if (!a.expiry_date) return 1;
+                      if (!b.expiry_date) return -1;
+                      return a.expiry_date.localeCompare(b.expiry_date);
+                    }
+                    if (reportSort === 'expiry_desc') {
+                      if (!a.expiry_date) return 1;
+                      if (!b.expiry_date) return -1;
+                      return b.expiry_date.localeCompare(a.expiry_date);
+                    }
+                    if (reportSort === 'qty_asc') {
+                      return a.quantity - b.quantity;
+                    }
+                    if (reportSort === 'qty_desc') {
+                      return b.quantity - a.quantity;
+                    }
+                    return 0;
+                  });
+
+                  return (
+                    <div className="space-y-6">
+                      {/* Sub-header inside tab with summary statistics */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div 
+                          onClick={() => setReportFilter('expired')}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${reportFilter === 'expired' ? 'bg-red-500/10 border-red-500/50 shadow-lg shadow-red-500/5' : 'bg-slate-900/40 border-slate-800 hover:border-red-500/30'}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-semibold text-slate-400">Itens Vencidos</span>
+                            <span className="p-1.5 rounded-lg bg-red-500/10 text-red-400"><ShieldAlert size={14} /></span>
                           </div>
-                        );
-                      })}
+                          <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-2xl font-extrabold text-red-400">{expiredCount}</span>
+                            <span className="text-[10px] text-slate-500">lotes fora do prazo</span>
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => setReportFilter('expiring_soon')}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${reportFilter === 'expiring_soon' ? 'bg-amber-500/10 border-amber-500/50 shadow-lg shadow-amber-500/5' : 'bg-slate-900/40 border-slate-800 hover:border-amber-500/30'}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-semibold text-slate-400">Próximos a Vencer</span>
+                            <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400"><Calendar size={14} /></span>
+                          </div>
+                          <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-2xl font-extrabold text-amber-400">{expiringSoonCount}</span>
+                            <span className="text-[10px] text-slate-500">vencendo em até 60 dias</span>
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => setReportFilter('low_stock')}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${reportFilter === 'low_stock' ? 'bg-orange-500/10 border-orange-500/50 shadow-lg shadow-orange-500/5' : 'bg-slate-900/40 border-slate-800 hover:border-orange-500/30'}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-semibold text-slate-400">Estoque Crítico (Baixo)</span>
+                            <span className="p-1.5 rounded-lg bg-orange-500/10 text-orange-400"><TrendingDown size={14} /></span>
+                          </div>
+                          <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-2xl font-extrabold text-orange-400">{lowStockCount}</span>
+                            <span className="text-[10px] text-slate-500">abaixo do estoque mínimo</span>
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => setReportFilter('valid')}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${reportFilter === 'valid' ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg shadow-emerald-500/5' : 'bg-slate-900/40 border-slate-800 hover:border-emerald-500/30'}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-semibold text-slate-400">Estoque Saudável</span>
+                            <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400"><CheckCircle size={14} /></span>
+                          </div>
+                          <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-2xl font-extrabold text-emerald-400">{validCount}</span>
+                            <span className="text-[10px] text-slate-500">dentro do prazo regular</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Main Report Table & Controls Container */}
+                      <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-slate-800/60 pb-5">
+                          <div>
+                            <h3 className="text-lg font-bold text-white">Listagem Analítica do Estoque</h3>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Exibindo <span className="font-bold text-white">{filteredAndSortedInventory.length}</span> de <span className="font-bold text-slate-300">{inventory.length}</span> lotes cadastrados
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <button 
+                              onClick={() => generatePDF('inventory')}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+                            >
+                              <Database size={14} />
+                              <span>Exportar PDF</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Interactive Toolbar Filter + Sorting Controls */}
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 bg-slate-950/20 p-4 rounded-xl border border-slate-800/60">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setReportFilter('all')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${reportFilter === 'all' ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-400 hover:text-slate-200 bg-transparent border border-transparent'}`}
+                            >
+                              Todos
+                            </button>
+                            <button
+                              onClick={() => setReportFilter('expired')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${reportFilter === 'expired' ? 'bg-red-500/10 text-red-400 border border-red-500/30' : 'text-slate-400 hover:text-red-400 bg-transparent border border-transparent'}`}
+                            >
+                              Vencidos ({expiredCount})
+                            </button>
+                            <button
+                              onClick={() => setReportFilter('expiring_soon')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${reportFilter === 'expiring_soon' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-amber-400 bg-transparent border border-transparent'}`}
+                            >
+                              Próx. a Vencer ({expiringSoonCount})
+                            </button>
+                            <button
+                              onClick={() => setReportFilter('low_stock')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${reportFilter === 'low_stock' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30' : 'text-slate-400 hover:text-orange-400 bg-transparent border border-transparent'}`}
+                            >
+                              Estoque Crítico ({lowStockCount})
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-2 w-full lg:w-auto">
+                            <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">Ordenar por:</span>
+                            <select
+                              value={reportSort}
+                              onChange={(e) => setReportSort(e.target.value as any)}
+                              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500 transition-all cursor-pointer w-full lg:w-auto"
+                            >
+                              <option value="expiry_asc">Validade (Mais Próxima)</option>
+                              <option value="expiry_desc">Validade (Mais Longe)</option>
+                              <option value="qty_asc">Quantidade (Menor primeiro)</option>
+                              <option value="qty_desc">Quantidade (Maior primeiro)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* List grid with beautiful colored banners */}
+                        {filteredAndSortedInventory.length > 0 ? (
+                          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                            {filteredAndSortedInventory.map(item => {
+                              const expiry = getExpiryStatus(item.expiry_date);
+                              const isLow = item.quantity < item.min_stock;
+                              
+                              // Determine color scheme for item card based on validity and quantity status
+                              let cardBg = 'bg-slate-950/20 hover:bg-slate-950/40';
+                              let cardBorder = 'border-slate-800/80 hover:border-slate-700/80';
+                              let accentStrip = 'bg-slate-800';
+                              
+                              if (expiry.isExpired) {
+                                cardBg = 'bg-red-950/10 hover:bg-red-950/15';
+                                cardBorder = 'border-red-900/40 hover:border-red-500/30';
+                                accentStrip = 'bg-red-500';
+                              } else if (expiry.isClose) {
+                                cardBg = 'bg-amber-950/10 hover:bg-amber-950/15';
+                                cardBorder = 'border-amber-900/40 hover:border-amber-500/30';
+                                accentStrip = 'bg-amber-500';
+                              } else if (isLow) {
+                                cardBg = 'bg-orange-950/5 hover:bg-orange-950/10';
+                                cardBorder = 'border-orange-900/30 hover:border-orange-500/25';
+                                accentStrip = 'bg-orange-500';
+                              } else {
+                                cardBg = 'bg-slate-950/10 hover:bg-slate-950/20';
+                                cardBorder = 'border-slate-800 hover:border-slate-700';
+                                accentStrip = 'bg-emerald-500/40';
+                              }
+
+                              return (
+                                <div 
+                                  key={item.id} 
+                                  className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border relative overflow-hidden transition-all duration-200 ${cardBg} ${cardBorder}`}
+                                >
+                                  {/* Left accent color strip */}
+                                  <div className={`absolute top-0 bottom-0 left-0 w-1 ${accentStrip}`} />
+                                  
+                                  <div className="pl-3 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-extrabold text-sm text-white">
+                                        {item.name}
+                                      </p>
+                                      {item.category && (
+                                        <span className="text-[9px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">
+                                          {item.category}
+                                        </span>
+                                      )}
+                                      {item.is_donation === 1 && (
+                                        <span className="text-[9px] bg-indigo-950/60 text-indigo-400 border border-indigo-900/50 px-2 py-0.5 rounded-full font-bold">
+                                          Doação
+                                        </span>
+                                      )}
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 mt-1">
+                                      <span className="flex items-center gap-1">
+                                        <span className="font-mono text-slate-500">Lote:</span> <span className="font-semibold text-slate-300">{item.batch || 'S/N'}</span>
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <span className="font-mono text-slate-500">Validade:</span>
+                                        <span className={`font-semibold ${expiry.isExpired ? 'text-red-400 font-bold' : expiry.isClose ? 'text-amber-400' : 'text-slate-335'}`}>
+                                          {item.expiry_date || 'Não Identificada'}
+                                        </span>
+                                      </span>
+                                    </div>
+
+                                    {/* Detailed colored alert indicator */}
+                                    <div className="mt-2">
+                                      {expiry.isExpired ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] text-red-400 bg-red-950/40 px-2.5 py-1 rounded-lg font-bold border border-red-900/40">
+                                          <ShieldAlert size={12} />
+                                          <span>{expiry.label}</span>
+                                        </span>
+                                      ) : expiry.isClose ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-950/40 px-2.5 py-1 rounded-lg font-bold border border-amber-900/40">
+                                          <AlertTriangle size={12} className="animate-pulse" />
+                                          <span>{expiry.label}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-950/20 px-2.5 py-1 rounded-lg font-semibold border border-emerald-900/30">
+                                          <Check size={12} />
+                                          <span>Dentro da validade regular</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 sm:mt-0 text-left sm:text-right flex sm:flex-col items-start sm:items-end justify-between sm:justify-center border-t sm:border-t-0 border-slate-800/40 pt-3 sm:pt-0 pl-3 sm:pl-0">
+                                    <div>
+                                      <p className="text-xs text-slate-400">Quantidade</p>
+                                      <p className="font-extrabold text-md text-white mt-0.5">{item.quantity} unidades</p>
+                                    </div>
+                                    <div className="mt-1">
+                                      {isLow ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] bg-red-950/40 text-red-400 border border-red-900/40 px-2 py-0.5 rounded-full font-bold">
+                                          <TrendingDown size={10} />
+                                          <span>Crítico (Mín: {item.min_stock})</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-950/20 text-emerald-400 border border-emerald-900/20 px-2 py-0.5 rounded-full font-semibold">
+                                          <Check size={10} />
+                                          <span>Seguro (Mín: {item.min_stock})</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/10 text-center">
+                            <span className="p-3 bg-slate-900 text-slate-500 rounded-full mb-3 border border-slate-800"><Info size={24} /></span>
+                            <p className="text-sm font-semibold text-slate-300">Nenhum lote corresponde aos filtros</p>
+                            <p className="text-xs text-slate-500 mt-1 max-w-xs">Experimente selecionar outra categoria ou limpar os filtros de ordenação.</p>
+                            <button 
+                              onClick={() => { setReportFilter('all'); }}
+                              className="mt-4 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors underline"
+                            >
+                              Limpar Filtros
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {reportTab === 'movimentacao' && (
                   <div className="bg-slate-900/40 p-8 rounded-2xl border border-slate-800">
