@@ -264,7 +264,7 @@ export default function App() {
   const [isPendingAuthorization, setIsPendingAuthorization] = useState(false);
   const [systemSettings, setSystemSettings] = useState({
     systemName: 'FARMACIA MACVIDA',
-    logoType: 'icon' as 'icon' | 'url',
+    logoType: 'icon' as 'icon' | 'url' | 'upload',
     logoValue: 'Pill',
     primaryColor: 'emerald' as 'emerald' | 'blue' | 'indigo' | 'violet' | 'rose'
   });
@@ -354,7 +354,7 @@ export default function App() {
         document.getElementsByTagName('head')[0].appendChild(link);
       }
 
-      if (systemSettings?.logoType === 'url' && systemSettings.logoValue) {
+      if ((systemSettings?.logoType === 'url' || systemSettings?.logoType === 'upload') && systemSettings.logoValue) {
         link.href = systemSettings.logoValue;
       } else {
         // Generate beautiful favicon using canvas with current primary color
@@ -2492,7 +2492,7 @@ export default function App() {
         <div className="w-full max-w-md z-10">
           <div className="flex flex-col items-center mb-8">
             <div className={`p-4 rounded-2xl border shadow-lg shadow-black/20 mb-3 ${themeColors.bg} ${themeColors.border}`}>
-              {systemSettings.logoType === 'url' && systemSettings.logoValue ? (
+              {(systemSettings.logoType === 'url' || systemSettings.logoType === 'upload') && systemSettings.logoValue ? (
                 <img src={systemSettings.logoValue} alt="Logo" className="w-9 h-9 object-contain" referrerPolicy="no-referrer" />
               ) : (
                 <LogoIcon iconName={systemSettings.logoValue} size={36} className={themeColors.text} />
@@ -2614,7 +2614,7 @@ export default function App() {
         <div className="p-6">
           <div className={`flex items-center gap-3 font-bold text-xl ${themeColors.text}`}>
             <div className={`p-2.5 rounded-xl shadow-md border ${themeColors.bg} ${themeColors.border}`}>
-              {systemSettings.logoType === 'url' && systemSettings.logoValue ? (
+              {(systemSettings.logoType === 'url' || systemSettings.logoType === 'upload') && systemSettings.logoValue ? (
                 <img src={systemSettings.logoValue} alt="Logo" className="w-[22px] h-[22px] object-contain" referrerPolicy="no-referrer" />
               ) : (
                 <LogoIcon iconName={systemSettings.logoValue} size={22} className={themeColors.text} />
