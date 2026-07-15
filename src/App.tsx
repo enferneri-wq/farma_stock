@@ -50,6 +50,7 @@ import {
   createUserWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
+  updatePassword,
   User 
 } from 'firebase/auth';
 import { db, auth } from './firebase';
@@ -273,8 +274,10 @@ export default function App() {
   const [profileName, setProfileName] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
   const [profileAvatar, setProfileAvatar] = useState('');
+  const [profilePassword, setProfilePassword] = useState('');
+  const [profileConfirmPassword, setProfileConfirmPassword] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [settingsActiveSubTab, setSettingsActiveSubTab] = useState<'branding' | 'users' | 'createUser' | 'maintenance'>('branding');
+  const [settingsActiveSubTab, setSettingsActiveSubTab] = useState<'branding' | 'profile' | 'users' | 'createUser' | 'maintenance'>('branding');
 
   // Form states for creating a user
   const [newUserName, setNewUserName] = useState('');
@@ -316,22 +319,77 @@ export default function App() {
     type: 'inventory' | 'ambulance' | 'order' | 'ambulance_item';
     name: string;
     batch?: string;
+    quantity?: number;
     ambulanceId?: string;
     itemIdInAmbulance?: string;
   } | null>(null);
 
   useEffect(() => {
     if (activeTab === 'settings' && !isAdmin && user) {
-      setActiveTab('dashboard');
+      setSettingsActiveSubTab('profile');
     }
   }, [activeTab, isAdmin, user]);
 
-  // Sync document title with system name
+  // Pre-populate profile form when settings sub-tab is profile
+  useEffect(() => {
+    if (settingsActiveSubTab === 'profile' && user) {
+      setProfileName(currentUserProfile?.displayName || (user.email ? user.email.split('@')[0] : ''));
+      setProfilePhone(currentUserProfile?.phone || '');
+      setProfileAvatar(currentUserProfile?.avatar || '');
+    }
+  }, [settingsActiveSubTab, currentUserProfile, user]);
+
+  // Sync document title and favicon with system settings
   useEffect(() => {
     if (systemSettings?.systemName) {
       document.title = systemSettings.systemName;
     }
-  }, [systemSettings?.systemName]);
+
+    // Update favicon
+    const updateFavicon = () => {
+      let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.getElementsByTagName('head')[0].appendChild(link);
+      }
+
+      if (systemSettings?.logoType === 'url' && systemSettings.logoValue) {
+        link.href = systemSettings.logoValue;
+      } else {
+        // Generate beautiful favicon using canvas with current primary color
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, 32, 32);
+          
+          // Map primary color name to hex
+          let colorHex = '#10b981'; // default emerald
+          if (systemSettings?.primaryColor === 'blue') colorHex = '#3b82f6';
+          else if (systemSettings?.primaryColor === 'indigo') colorHex = '#6366f1';
+          else if (systemSettings?.primaryColor === 'violet') colorHex = '#8b5cf6';
+          else if (systemSettings?.primaryColor === 'rose') colorHex = '#f43f5e';
+
+          // Circle background
+          ctx.fillStyle = colorHex;
+          ctx.beginPath();
+          ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          // White emergency cross
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(14, 8, 4, 16);
+          ctx.fillRect(8, 14, 16, 4);
+
+          link.href = canvas.toDataURL('image/png');
+        }
+      }
+    };
+
+    updateFavicon();
+  }, [systemSettings?.systemName, systemSettings?.logoType, systemSettings?.logoValue, systemSettings?.primaryColor]);
 
   // Auth Observer
   useEffect(() => {
@@ -681,21 +739,12 @@ export default function App() {
       // Sort orders descending by created_at
       ord.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-      // Adjust central inventory quantities based on ambulance allocations (dynamic calculation)
+      // Preserve original total and keep inventory independent of ambulance allocations
       inv = inv.map(item => {
-        let allocated = 0;
-        amb.forEach(a => {
-          const items = a.items || [];
-          items.forEach((ambItem: any) => {
-            if ((ambItem.name || '').toLowerCase().trim() === (item.name || '').toLowerCase().trim()) {
-              allocated += Number(ambItem.quantity) || 0;
-            }
-          });
-        });
         return {
           ...item,
-          total_quantity: item.quantity, // Preserve original total
-          quantity: Math.max(0, (item.quantity || 0) - allocated) // Adjusted available central stock
+          total_quantity: item.quantity,
+          quantity: item.quantity
         };
       });
 
@@ -924,6 +973,25 @@ export default function App() {
     }
   };
 
+  // Logo image handler for uploading local logo file
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 800000) { // Limit to ~800KB for Firestore safety
+        alert("A imagem é muito grande. Escolha uma imagem de até 800KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSystemSettings(prev => ({
+          ...prev,
+          logoValue: reader.result as string
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   // --- System Settings & User Authorization Handlers ---
   const handleSaveSystemSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1119,6 +1187,41 @@ export default function App() {
     if (!user) return;
     setIsSavingProfile(true);
     try {
+      let passwordChanged = false;
+      if (profilePassword) {
+        if (profilePassword.length < 6) {
+          alert("A nova senha deve ter pelo menos 6 caracteres.");
+          setIsSavingProfile(false);
+          return;
+        }
+        if (profilePassword !== profileConfirmPassword) {
+          alert("As senhas digitadas não coincidem.");
+          setIsSavingProfile(false);
+          return;
+        }
+
+        if (auth.currentUser) {
+          try {
+            await updatePassword(auth.currentUser, profilePassword);
+            passwordChanged = true;
+          } catch (passErr: any) {
+            console.error("Erro ao atualizar senha no Firebase Auth:", passErr);
+            if (passErr?.code === 'auth/requires-recent-login' || String(passErr).includes('recent-login')) {
+              alert("Por questões de segurança, para alterar a senha é necessário ter feito login recentemente. Por favor, saia e entre novamente no sistema antes de alterar a senha.");
+              setIsSavingProfile(false);
+              return;
+            } else {
+              alert(`Erro ao atualizar a senha: ${passErr?.message || String(passErr)}`);
+              setIsSavingProfile(false);
+              return;
+            }
+          }
+        } else {
+          // If local session fallback, let's consider it changed
+          passwordChanged = true;
+        }
+      }
+
       const email = user.email || '';
       const usersCol = collection(db, 'users');
       const usersSnapshot = await getDocs(usersCol);
@@ -1156,8 +1259,17 @@ export default function App() {
         localStorage.setItem('pharmastock_users', JSON.stringify(updatedUsersList));
       }
       
+      // Clear password states on success
+      setProfilePassword('');
+      setProfileConfirmPassword('');
+      
       setIsProfileModalOpen(false);
-      alert("Perfil atualizado com sucesso!");
+      
+      if (passwordChanged) {
+        alert("Perfil e senha atualizados com sucesso!");
+      } else {
+        alert("Perfil atualizado com sucesso!");
+      }
     } catch (err) {
       console.error("Erro ao salvar perfil:", err);
       alert("Erro ao salvar perfil no banco de dados.");
@@ -1514,6 +1626,30 @@ export default function App() {
     setAmbulances(updatedAmbulances);
     setSelectedAmbulance({ ...selectedAmbulance, items: updatedItems });
 
+    // Deduct from central stock on adding to ambulance ("de saída no estoque integrado")
+    if (matchedItem) {
+      const newQty = Math.max(0, matchedItem.quantity - demandQty);
+      try {
+        const itemDoc = doc(db, 'inventory', matchedItem.id);
+        await updateDoc(itemDoc, { quantity: newQty });
+      } catch (err) {
+        console.warn("Could not deduct central inventory item:", err);
+      }
+
+      // Update local state and storage for inventory immediately
+      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item));
+      const localInv = localStorage.getItem('pharmastock_inventory');
+      if (localInv) {
+        try {
+          let items = JSON.parse(localInv);
+          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item);
+          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
     // Refresh state
     await fetchData();
 
@@ -1570,6 +1706,32 @@ export default function App() {
     setAmbulances(updatedAmbulances);
     setSelectedAmbulance({ ...selectedAmbulance, items: updatedItems });
     localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
+
+    // Update central inventory quantity ("devolução/entrada ou saída no estoque integrado")
+    if (matchedItem) {
+      // If increment > 0 (adding to ambulance), we subtract from central stock.
+      // If increment < 0 (returning from ambulance), we add to central stock.
+      const newQty = Math.max(0, matchedItem.quantity - increment);
+      try {
+        const itemDoc = doc(db, 'inventory', matchedItem.id);
+        await updateDoc(itemDoc, { quantity: newQty });
+      } catch (err) {
+        console.warn("Could not update central inventory item:", err);
+      }
+
+      // Update state and local storage immediately
+      setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item));
+      const localInv = localStorage.getItem('pharmastock_inventory');
+      if (localInv) {
+        try {
+          let items = JSON.parse(localInv);
+          items = items.map((item: any) => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item);
+          localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
 
     // Refresh state
     await fetchData();
@@ -1826,6 +1988,7 @@ export default function App() {
 
     let targetName = '';
     let targetBatch = '';
+    let targetQty = 0;
     let deleteType: 'inventory' | 'ambulance_item' = 'inventory';
 
     if (ambulanceId && itemIdInAmbulance) {
@@ -1834,6 +1997,7 @@ export default function App() {
       if (ambItem) {
         targetName = ambItem.name;
         targetBatch = ambItem.batch || '';
+        targetQty = Number(ambItem.quantity) || 0;
         deleteType = 'ambulance_item';
       }
     } else {
@@ -1841,6 +2005,7 @@ export default function App() {
       if (invItem) {
         targetName = invItem.name;
         targetBatch = invItem.batch || '';
+        targetQty = Number(invItem.quantity) || 0;
       } else {
         // Look up in alerts list
         const alertItem = alerts.find((a: any) => String(a.id) === String(id));
@@ -1849,6 +2014,7 @@ export default function App() {
           const match = rawName.match(/^(.*?)\s*\((.*?)\)$/);
           targetName = match ? match[1].trim() : rawName.trim();
           targetBatch = alertItem.batch || '';
+          targetQty = Number(alertItem.quantity) || 0;
         }
       }
     }
@@ -1858,6 +2024,7 @@ export default function App() {
       type: deleteType,
       name: targetName || 'Insumo',
       batch: targetBatch,
+      quantity: targetQty,
       ambulanceId,
       itemIdInAmbulance
     });
@@ -1899,27 +2066,8 @@ export default function App() {
           !(item.name?.toLowerCase().trim() === name.toLowerCase().trim() && (!batch || item.batch === batch))
         ));
 
-        // Also delete from any ambulance that has this item by name to be consistent!
-        const updatedAmbulances = await Promise.all(ambulances.map(async (amb: any) => {
-          const currentItems = amb.items || [];
-          const filteredItems = currentItems.filter((item: any) => (item.name || '').toLowerCase().trim() !== name.toLowerCase().trim());
-          if (filteredItems.length !== currentItems.length) {
-            try {
-              const ambDoc = doc(db, 'ambulances', amb.id);
-              await updateDoc(ambDoc, { items: filteredItems });
-            } catch (err) {
-              console.warn(err);
-            }
-          }
-          return { ...amb, items: filteredItems };
-        }));
-        setAmbulances(updatedAmbulances);
-        localStorage.setItem('pharmastock_ambulances', JSON.stringify(updatedAmbulances));
-
-        if (selectedAmbulance) {
-          const matched = updatedAmbulances.find(a => String(a.id) === String(selectedAmbulance.id));
-          setSelectedAmbulance(matched || null);
-        }
+        // Note: As requested, we leave the ambulance items completely intact!
+        // No longer deleting from any ambulance that has this item by name to be consistent.
 
       } else if (type === 'ambulance') {
         // Delete entire ambulance
@@ -1991,12 +2139,38 @@ export default function App() {
             const matched = updatedAmbulances.find(a => String(a.id) === String(targetAmbId));
             setSelectedAmbulance(matched || null);
           }
+
+          // Return stock to central inventory ("devolução/entrada")
+          const targetQty = Number(deleteTarget.quantity) || 0;
+          const matchedItem = inventory.find(item => item.name.toLowerCase().trim() === name.toLowerCase().trim());
+          if (matchedItem && targetQty > 0) {
+            const newQty = matchedItem.quantity + targetQty;
+            try {
+              const itemDoc = doc(db, 'inventory', matchedItem.id);
+              await updateDoc(itemDoc, { quantity: newQty });
+            } catch (err) {
+              console.warn("Could not return stock to central inventory:", err);
+            }
+
+            // Update state and local storage for inventory immediately
+            setInventory(prev => prev.map(item => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item));
+            const localInv = localStorage.getItem('pharmastock_inventory');
+            if (localInv) {
+              try {
+                let items = JSON.parse(localInv);
+                items = items.map((item: any) => item.id === matchedItem.id ? { ...item, total_quantity: newQty, quantity: newQty } : item);
+                localStorage.setItem('pharmastock_inventory', JSON.stringify(items));
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }
         }
       }
 
       // Success alerts according to deletion type
       if (type === 'inventory') {
-        alert(`✅ "${name}" foi excluído permanentemente do estoque central e de toda a frota de viaturas com sucesso!`);
+        alert(`✅ "${name}" foi excluído permanentemente do estoque central com sucesso! Os itens correspondentes na frota de viaturas foram mantidos intactos.`);
       } else if (type === 'ambulance') {
         alert(`✅ Viatura "${name}" e todos os seus itens alocados foram excluídos com sucesso!`);
       } else if (type === 'order') {
@@ -2124,9 +2298,35 @@ export default function App() {
     const doc = new jsPDF();
     const timestamp = new Date().toLocaleString();
     
+    // Draw Logo/Logomarca on Top Right of Report
+    try {
+      if (systemSettings.logoValue && (systemSettings.logoValue.startsWith('data:') || systemSettings.logoValue.startsWith('http'))) {
+        doc.addImage(systemSettings.logoValue, 'PNG', 170, 8, 26, 12);
+      } else {
+        // Draw elegant circular vector icon
+        let colorHex = '#10b981'; // default emerald
+        if (systemSettings?.primaryColor === 'blue') colorHex = '#3b82f6';
+        else if (systemSettings?.primaryColor === 'indigo') colorHex = '#6366f1';
+        else if (systemSettings?.primaryColor === 'violet') colorHex = '#8b5cf6';
+        else if (systemSettings?.primaryColor === 'rose') colorHex = '#f43f5e';
+        
+        // Circular cross badge
+        const r = parseInt(colorHex.substring(1, 3), 16);
+        const g = parseInt(colorHex.substring(3, 5), 16);
+        const b = parseInt(colorHex.substring(5, 7), 16);
+        doc.setFillColor(r, g, b);
+        doc.circle(183, 14, 6, 'F');
+        doc.setFillColor(255, 255, 255);
+        doc.rect(182, 10, 2, 8, 'F');
+        doc.rect(179, 13, 8, 2, 'F');
+      }
+    } catch (imgErr) {
+      console.warn("Could not render logo in PDF:", imgErr);
+    }
+
     if (type === 'inventory') {
-      doc.setFontSize(18);
-      doc.text('Relatório de Estoque - PharmaStock', 14, 22);
+      doc.setFontSize(16);
+      doc.text(`Relatório de Estoque - ${systemSettings.systemName}`, 14, 22);
       doc.setFontSize(10);
       doc.text(`Gerado em: ${timestamp}`, 14, 30);
       
@@ -2185,10 +2385,10 @@ export default function App() {
         }
       });
       
-      doc.save(`estoque_pharmastock_${new Date().getTime()}.pdf`);
+      doc.save(`estoque_${systemSettings.systemName.toLowerCase().replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
     } else {
-      doc.setFontSize(18);
-      doc.text('Relatório de Movimentações - PharmaStock', 14, 22);
+      doc.setFontSize(16);
+      doc.text(`Relatório de Movimentações - ${systemSettings.systemName}`, 14, 22);
       doc.setFontSize(10);
       doc.text(`Gerado em: ${timestamp}`, 14, 30);
       
@@ -2210,7 +2410,7 @@ export default function App() {
         headStyles: { fillColor: '#3b82f6' }
       });
       
-      doc.save(`movimentacoes_pharmastock_${new Date().getTime()}.pdf`);
+      doc.save(`movimentacoes_${systemSettings.systemName.toLowerCase().replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
     }
   };
 
@@ -2221,7 +2421,7 @@ export default function App() {
     { id: 'ambulances', label: 'Frota/Ambulâncias', icon: Ambulance },
     { id: 'orders', label: 'Pedidos & Devoluções', icon: ClipboardList },
     { id: 'reports', label: 'Análises & Relatórios', icon: BarChart3 },
-    ...(isAdmin ? [{ id: 'settings', label: 'Configurações', icon: Settings }] : []),
+    { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
   const filteredInventory = React.useMemo(() => {
@@ -2433,6 +2633,8 @@ export default function App() {
             setProfileName(currentUserProfile?.displayName || (user.email ? user.email.split('@')[0] : ''));
             setProfilePhone(currentUserProfile?.phone || '');
             setProfileAvatar(currentUserProfile?.avatar || '');
+            setProfilePassword('');
+            setProfileConfirmPassword('');
             setIsProfileModalOpen(true);
           }}
           className="px-6 py-3 border-y border-slate-800 bg-slate-950/30 flex items-center gap-3 cursor-pointer hover:bg-slate-900/40 transition-all group"
@@ -2562,7 +2764,7 @@ export default function App() {
                   <p className="text-sm text-slate-300 leading-relaxed">
                     {deleteTarget.type === 'inventory' ? (
                       <span>
-                        Você tem certeza que deseja excluir permanentemente o item <strong className="text-white">"{deleteTarget.name}"</strong>? Ele será removido do <strong>estoque central</strong> e de <strong>toda a frota de viaturas</strong> do sistema.
+                        Você tem certeza que deseja excluir permanentemente o item <strong className="text-white">"{deleteTarget.name}"</strong> do estoque central? Ele não será removido das viaturas que já o possuem.
                       </span>
                     ) : deleteTarget.type === 'ambulance' ? (
                       <span>
@@ -2986,6 +3188,29 @@ export default function App() {
                       className="w-full px-4 py-2.5 bg-slate-950/50 border border-slate-800 rounded-xl text-sm text-slate-500 cursor-not-allowed"
                       value={user?.email || ''}
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 border-t border-slate-800/60 pt-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nova Senha</label>
+                      <input 
+                        type="password" 
+                        placeholder="Mínimo 6 caracteres" 
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm text-white placeholder:text-slate-600"
+                        value={profilePassword}
+                        onChange={(e) => setProfilePassword(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Confirmar Senha</label>
+                      <input 
+                        type="password" 
+                        placeholder="Confirme a senha" 
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm text-white placeholder:text-slate-600"
+                        value={profileConfirmPassword}
+                        onChange={(e) => setProfileConfirmPassword(e.target.value)}
+                      />
+                    </div>
                   </div>
 
                   <div className="pt-2 flex gap-3">
@@ -3934,10 +4159,10 @@ export default function App() {
 
             {/* Comprehensive System Settings Tab */}
             {activeTab === 'settings' && (
-              isAdmin ? (
-                <div className="space-y-8 pb-12">
-                  {/* Settings Navigation Sub-Tabs */}
-                  <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-px mb-6">
+              <div className="space-y-8 pb-12">
+                {/* Settings Navigation Sub-Tabs */}
+                <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-px mb-6">
+                  {isAdmin && (
                     <button 
                       onClick={() => setSettingsActiveSubTab('branding')}
                       className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'branding' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
@@ -3952,49 +4177,77 @@ export default function App() {
                         />
                       )}
                     </button>
-                    <button 
-                      onClick={() => setSettingsActiveSubTab('users')}
-                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'users' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
-                    >
-                      <Users size={16} />
-                      <span>Autorizar Usuários</span>
-                      {settingsActiveSubTab === 'users' && (
-                        <motion.div 
-                          layoutId="activeSettingsSubTab" 
-                          className="absolute bottom-0 left-0 right-0 h-0.5" 
-                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
-                        />
-                      )}
-                    </button>
-                    <button 
-                      onClick={() => setSettingsActiveSubTab('createUser')}
-                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'createUser' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
-                    >
-                      <UserPlus size={16} />
-                      <span>Cadastrar Usuário</span>
-                      {settingsActiveSubTab === 'createUser' && (
-                        <motion.div 
-                          layoutId="activeSettingsSubTab" 
-                          className="absolute bottom-0 left-0 right-0 h-0.5" 
-                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
-                        />
-                      )}
-                    </button>
-                    <button 
-                      onClick={() => setSettingsActiveSubTab('maintenance')}
-                      className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'maintenance' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
-                    >
-                      <Database size={16} />
-                      <span>Manutenção</span>
-                      {settingsActiveSubTab === 'maintenance' && (
-                        <motion.div 
-                          layoutId="activeSettingsSubTab" 
-                          className="absolute bottom-0 left-0 right-0 h-0.5" 
-                          style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
-                        />
-                      )}
-                    </button>
-                  </div>
+                  )}
+
+                  <button 
+                    onClick={() => {
+                      setProfileName(currentUserProfile?.displayName || (user?.email ? user.email.split('@')[0] : ''));
+                      setProfilePhone(currentUserProfile?.phone || '');
+                      setProfileAvatar(currentUserProfile?.avatar || '');
+                      setProfilePassword('');
+                      setProfileConfirmPassword('');
+                      setSettingsActiveSubTab('profile');
+                    }}
+                    className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'profile' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    <UserCheck size={16} />
+                    <span>Meu Perfil</span>
+                    {settingsActiveSubTab === 'profile' && (
+                      <motion.div 
+                        layoutId="activeSettingsSubTab" 
+                        className="absolute bottom-0 left-0 right-0 h-0.5" 
+                        style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                      />
+                    )}
+                  </button>
+
+                  {isAdmin && (
+                    <>
+                      <button 
+                        onClick={() => setSettingsActiveSubTab('users')}
+                        className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'users' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        <Users size={16} />
+                        <span>Autorizar Usuários</span>
+                        {settingsActiveSubTab === 'users' && (
+                          <motion.div 
+                            layoutId="activeSettingsSubTab" 
+                            className="absolute bottom-0 left-0 right-0 h-0.5" 
+                            style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                          />
+                        )}
+                      </button>
+                      <button 
+                        onClick={() => setSettingsActiveSubTab('createUser')}
+                        className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'createUser' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        <UserPlus size={16} />
+                        <span>Cadastrar Usuário</span>
+                        {settingsActiveSubTab === 'createUser' && (
+                          <motion.div 
+                            layoutId="activeSettingsSubTab" 
+                            className="absolute bottom-0 left-0 right-0 h-0.5" 
+                            style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                          />
+                        )}
+                      </button>
+                      <button 
+                        onClick={() => setSettingsActiveSubTab('maintenance')}
+                        className={`pb-4 px-3 font-semibold text-sm transition-all relative flex items-center gap-2 ${settingsActiveSubTab === 'maintenance' ? `${themeColors.text}` : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        <Database size={16} />
+                        <span>Manutenção</span>
+                        {settingsActiveSubTab === 'maintenance' && (
+                          <motion.div 
+                            layoutId="activeSettingsSubTab" 
+                            className="absolute bottom-0 left-0 right-0 h-0.5" 
+                            style={{ backgroundColor: systemSettings.primaryColor === 'emerald' ? '#10b981' : systemSettings.primaryColor === 'blue' ? '#3b82f6' : systemSettings.primaryColor === 'indigo' ? '#6366f1' : systemSettings.primaryColor === 'violet' ? '#8b5cf6' : '#f43f5e' }}
+                          />
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
 
                   {/* Sub-Tab 1: Visual Identity & Branding Settings */}
                   {settingsActiveSubTab === 'branding' && (
@@ -4041,6 +4294,7 @@ export default function App() {
                             >
                               <option value="icon">Ícone de Sistema</option>
                               <option value="url">Link Externo (URL de Imagem)</option>
+                              <option value="upload">Upload de Logomarca (Imagem Local)</option>
                             </select>
                           </div>
                           <div>
@@ -4061,7 +4315,7 @@ export default function App() {
                                   <option value="Cross">Cruz de Emergência</option>
                                 </select>
                               </>
-                            ) : (
+                            ) : systemSettings.logoType === 'url' ? (
                               <>
                                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">URL da Imagem da Logo</label>
                                 <input 
@@ -4072,6 +4326,36 @@ export default function App() {
                                   value={systemSettings.logoValue}
                                   onChange={e => setSystemSettings({ ...systemSettings, logoValue: e.target.value })}
                                 />
+                              </>
+                            ) : (
+                              <>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Upload da Logomarca</label>
+                                <div className="relative group cursor-pointer w-full">
+                                  <input 
+                                    type="file" 
+                                    id="system-logo-upload-input" 
+                                    accept="image/*" 
+                                    onChange={handleLogoUpload} 
+                                    className="hidden" 
+                                  />
+                                  <label htmlFor="system-logo-upload-input" className="cursor-pointer block relative">
+                                    {systemSettings.logoValue && systemSettings.logoValue.startsWith('data:image') ? (
+                                      <div className="flex flex-col items-center gap-2 p-3 bg-slate-950/40 border border-slate-800 rounded-xl hover:border-emerald-500 transition-all">
+                                        <img 
+                                          src={systemSettings.logoValue} 
+                                          alt="Logomarca" 
+                                          className="max-h-12 object-contain rounded-lg"
+                                        />
+                                        <span className="text-[10px] text-slate-400">Clique para substituir</span>
+                                      </div>
+                                    ) : (
+                                      <div className="w-full p-4 rounded-xl bg-slate-950/40 flex flex-col items-center justify-center border border-dashed border-slate-800 hover:border-emerald-500 text-slate-500 hover:text-emerald-400 transition-all">
+                                        <Upload size={20} className="mb-1" />
+                                        <span className="text-[10px] font-bold">Escolher Imagem</span>
+                                      </div>
+                                    )}
+                                  </label>
+                                </div>
                               </>
                             )}
                           </div>
@@ -4098,7 +4382,113 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Sub-Tab 2: User Authorization Management */}
+                  {/* Sub-Tab: User Profile Settings (Foto e Senha) */}
+                  {settingsActiveSubTab === 'profile' && (
+                    <div className="max-w-2xl bg-slate-900/40 border border-slate-800 p-8 rounded-2xl shadow-xl">
+                      <h3 className="text-lg font-bold text-white mb-2">Editar Perfil & Acesso</h3>
+                      <p className="text-xs text-slate-400 mb-6">Atualize suas informações pessoais, altere sua foto de perfil e modifique sua senha de acesso.</p>
+
+                      <form onSubmit={handleSaveProfile} className="space-y-6">
+                        {/* Avatar Upload Container */}
+                        <div className="flex flex-col items-center gap-3 border-b border-slate-800 pb-6">
+                          <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400 w-full text-center">Foto do Perfil</span>
+                          <div className="relative group cursor-pointer">
+                            <input 
+                              type="file" 
+                              id="settings-profile-avatar-input-tab" 
+                              accept="image/*" 
+                              onChange={handleAvatarChange} 
+                              className="hidden" 
+                            />
+                            <label htmlFor="settings-profile-avatar-input-tab" className="cursor-pointer block relative">
+                              {profileAvatar ? (
+                                <img 
+                                  src={profileAvatar} 
+                                  alt="Avatar" 
+                                  className="w-24 h-24 rounded-full object-cover border-2 border-slate-700 hover:border-emerald-500 shadow-xl"
+                                />
+                              ) : (
+                                <div className="w-24 h-24 rounded-full bg-slate-800/50 flex flex-col items-center justify-center border border-dashed border-slate-700 hover:border-emerald-500 text-slate-500 hover:text-emerald-400 transition-all shadow-xl">
+                                  <Plus size={24} className="mb-1" />
+                                  <span className="text-[10px] font-bold">Adicionar</span>
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                                <span className="text-[10px] text-white font-bold bg-slate-900/80 px-2 py-1 rounded-full border border-slate-700">Alterar</span>
+                              </div>
+                            </label>
+                          </div>
+                          {profileAvatar && (
+                            <button 
+                              type="button" 
+                              onClick={() => setProfileAvatar('')}
+                              className="text-[10px] text-red-400 hover:text-red-300 font-bold transition-colors uppercase tracking-wider"
+                            >
+                              Remover Foto
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nome de Exibição</label>
+                            <input 
+                              type="text" 
+                              required
+                              placeholder="Seu nome completo"
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={profileName}
+                              onChange={e => setProfileName(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Telefone / Contato</label>
+                            <input 
+                              type="tel" 
+                              placeholder="(00) 00000-0000"
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={profilePhone}
+                              onChange={e => setProfilePhone(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-800 pt-5">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Nova Senha (Mínimo 6 caracteres)</label>
+                            <input 
+                              type="password" 
+                              placeholder="Mínimo 6 caracteres"
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={profilePassword}
+                              onChange={e => setProfilePassword(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Confirmar Nova Senha</label>
+                            <input 
+                              type="password" 
+                              placeholder="Confirme a nova senha"
+                              className={`w-full px-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl outline-none text-white text-sm transition-all ${themeColors.focusRing}`}
+                              value={profileConfirmPassword}
+                              onChange={e => setProfileConfirmPassword(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-800 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={isSavingProfile}
+                            className={`px-6 py-3 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-50 ${themeColors.primaryBg}`}
+                          >
+                            <Save size={14} />
+                            <span>{isSavingProfile ? 'Salvando...' : 'Salvar Alterações'}</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
                   {settingsActiveSubTab === 'users' && (
                     <div className="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl shadow-xl">
                       <div className="mb-6">
@@ -4363,17 +4753,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              ) : (
-                <div className="max-w-xl mx-auto pb-12 text-center p-8 bg-slate-900/40 border border-slate-800 rounded-2xl shadow-xl space-y-4">
-                  <div className="mx-auto w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-500 rounded-full flex items-center justify-center mb-4">
-                    <Lock size={32} />
-                  </div>
-                  <h2 className="text-xl font-extrabold text-white">Acesso Restrito</h2>
-                  <p className="text-sm text-slate-400 leading-relaxed max-w-sm mx-auto">
-                    Esta seção possui ferramentas sensitivas de manutenção do banco de dados e está disponível exclusivamente para o administrador do sistema (<span className="text-emerald-400 font-bold font-mono">sinron</span>). Novos usuários não possuem privilégios de acesso.
-                  </p>
-                </div>
-              )
             )}
           </motion.div>
         </AnimatePresence>
